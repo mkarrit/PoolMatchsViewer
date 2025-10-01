@@ -1,15 +1,37 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useMatches } from "../hooks/useMatches";
 import { useCueScore } from "../hooks/useCueScore";
-import { tables } from "../utils/config";
+import { useTables } from "../hooks/useTables";
+import { getTables } from "../utils/config";
+import TableConfig from "../components/TableConfig";
 
 export default function AdminPage({ addToast }) {
   const [tableId, setTableId] = useState("");
   const [maxDuration, setMaxDuration] = useState("");
   const [showConfirmDelete, setShowConfirmDelete] = useState(null);
+  const [showTableConfig, setShowTableConfig] = useState(false);
+  const [availableTables, setAvailableTables] = useState([]);
 
   const { matches, addMatch, removeMatch, clearAllMatches, updateMatchStatus, error } = useMatches();
   const { fetchMatchData, loading: apiLoading } = useCueScore();
+  const { tables: dynamicTables } = useTables();
+
+  // Charger les tables disponibles
+  useEffect(() => {
+    const loadTables = () => {
+      setAvailableTables(getTables());
+    };
+    
+    loadTables();
+    
+    // Écouter les mises à jour des tables
+    const handleTablesUpdate = () => {
+      loadTables();
+    };
+    
+    window.addEventListener('tablesUpdated', handleTablesUpdate);
+    return () => window.removeEventListener('tablesUpdated', handleTablesUpdate);
+  }, [dynamicTables]);
 
   const handleAdd = async () => {
     const duration = Number(maxDuration);
@@ -23,7 +45,7 @@ export default function AdminPage({ addToast }) {
       return;
     }
 
-    const selectedTable = tables.find(t => t.id === parseInt(tableId));
+    const selectedTable = availableTables.find(t => t.id === parseInt(tableId));
     if (!selectedTable) {
       addToast('Table invalide', 'error');
       return;
@@ -126,8 +148,18 @@ export default function AdminPage({ addToast }) {
       <div className="max-w-6xl mx-auto">
         {/* Header Admin */}
         <div className="bg-glass-medium backdrop-blur-xl rounded-2xl p-6 mb-8 border border-white/10 shadow-xl">
-          <h1 className="text-3xl font-black text-text-primary tracking-tight">⚙️ Administration</h1>
-          <p className="text-text-muted mt-2">Gestion des matchs de billard</p>
+          <div className="flex justify-between items-center">
+            <div>
+              <h1 className="text-3xl font-black text-text-primary tracking-tight">⚙️ Administration</h1>
+              <p className="text-text-muted mt-2">Gestion des matchs de billard</p>
+            </div>
+            <button
+              onClick={() => setShowTableConfig(true)}
+              className="px-4 py-2 bg-accent hover:bg-accent/80 rounded-lg text-white font-medium transition-all duration-200 shadow-lg shadow-accent/30"
+            >
+              🎱 Configurer les tables de jeux
+            </button>
+          </div>
         </div>
 
         {/* Formulaire d'ajout */}
@@ -140,7 +172,7 @@ export default function AdminPage({ addToast }) {
               onChange={(e) => setTableId(e.target.value)}
             >
               <option value="" className="bg-primary text-text-muted">Sélectionnez une table</option>
-              {tables.map(table => (
+              {availableTables.map(table => (
                 <option key={table.id} value={table.id} className="bg-primary text-text-primary">
                   {table.name}
                 </option>
@@ -296,6 +328,13 @@ export default function AdminPage({ addToast }) {
           )}
         </div>
       </div>
+
+      {/* Modal de configuration des tables */}
+      <TableConfig 
+        isOpen={showTableConfig}
+        onClose={() => setShowTableConfig(false)}
+        addToast={addToast}
+      />
     </div>
   );
 }

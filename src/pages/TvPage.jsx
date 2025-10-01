@@ -19,7 +19,7 @@ const TvHeader = memo(() => (
         <h1 className="text-3xl font-black text-text-primary tracking-tight">
           Matches en cours
         </h1>
-        <p className="text-accent font-semibold tracking-wide text-sm">TD1 GIRONDE</p>
+        <p className="text-accent font-semibold tracking-wide text-sm">BlackBall TD n°1 Gironde - LE LIVERPOOL - 2025/2026</p>
       </div>
     </div>
   </div>

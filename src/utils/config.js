@@ -2,8 +2,8 @@
  * Configuration de l'application
  */
 
-// Configuration des tables avec leurs codes CueScore
-export const tables = [
+// Configuration par défaut des tables (fallback)
+const defaultTables = [
   { id: 1, name: "Table 1", code: "f8c4bd61" },
   { id: 2, name: "Table 2", code: "a3b9ae98" },
   { id: 3, name: "Table 3", code: "dc64dc33" },
@@ -14,6 +14,26 @@ export const tables = [
   { id: 8, name: "Table 8", code: "089ce6b4" },
   { id: 9, name: "Table 9", code: "e3b48627" }
 ];
+
+// Fonction pour récupérer les tables (depuis localStorage ou par défaut)
+export function getTables() {
+  try {
+    const savedTables = localStorage.getItem('clubTables');
+    if (savedTables) {
+      const parsed = JSON.parse(savedTables);
+      // Validation basique des données
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed;
+      }
+    }
+  } catch (error) {
+    console.warn('Erreur lors du chargement des tables:', error);
+  }
+  return defaultTables;
+}
+
+// Export des tables (pour compatibilité avec le code existant)
+export const tables = getTables();
 
 export const appConfig = {
   // Paramètres des matchs
