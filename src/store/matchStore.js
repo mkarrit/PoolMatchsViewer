@@ -1,5 +1,5 @@
 import { matchValidators, MatchError, errorCodes } from '../utils/validation';
-import { tables } from '../utils/config';
+import { getTables } from '../utils/config';
 
 class MatchStore {
   constructor() {
@@ -111,8 +111,9 @@ class MatchStore {
         );
       }
 
-      // Trouver la configuration de la table
-      const tableConfig = tables.find(t => t.id === parseInt(sanitized.table));
+      // Trouver la configuration de la table depuis les tables dynamiques
+      const availableTables = getTables();
+      const tableConfig = availableTables.find(t => t.id === parseInt(sanitized.table));
       if (!tableConfig) {
         throw new MatchError(
           `Table ${sanitized.table} non trouvée dans la configuration`,
