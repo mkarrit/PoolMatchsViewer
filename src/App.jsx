@@ -3,6 +3,7 @@ import { Routes, Route, Link } from "react-router-dom";
 import TvPage from "./pages/TvPage";
 import AdminPage from "./pages/AdminPage";
 import { ToastContainer } from "./components/Toast";
+import Footer from "./components/Footer";
 import { useToast } from "./hooks/useToast";
 
 // Mémoriser la navigation pour éviter les re-renders
@@ -46,6 +47,7 @@ export default function App() {
       </Routes>
 
       <ToastContainer toasts={toasts} removeToast={removeToast} />
+      <Footer />
     </div>
   );
 }
