@@ -129,7 +129,8 @@ class MatchStore {
         tableCode: tableConfig.code, // Ajouter le code CueScore
         tableName: tableConfig.name, // Ajouter le nom de la table
         startTime: new Date().toISOString(),
-        status: 'active',
+        status: 'waiting', // Nouveau statut par défaut
+        actualStartTime: null, // Temps de démarrage réel du timer
         maxDurationMinutes: parseInt(maxDurationMinutes),
         autoFinished: false,
         totalPausedTime: 0,
@@ -212,6 +213,39 @@ class MatchStore {
     const updatedMatches = matches.map(match => 
       match.id === matchId ? { ...match, ...updates } : match
     );
+    this.saveMatches(updatedMatches);
+  }
+
+  // Démarrer le timer d'un match spécifique
+  startMatchTimer(matchId) {
+    const matches = this.getMatches();
+    const updatedMatches = matches.map(match => {
+      if (match.id === matchId && match.status === 'waiting') {
+        return { 
+          ...match, 
+          status: 'active',
+          actualStartTime: new Date().toISOString()
+        };
+      }
+      return match;
+    });
+    this.saveMatches(updatedMatches);
+  }
+
+  // Démarrer tous les timers des matchs en attente
+  startAllTimers() {
+    const matches = this.getMatches();
+    const now = new Date().toISOString();
+    const updatedMatches = matches.map(match => {
+      if (match.status === 'waiting') {
+        return { 
+          ...match, 
+          status: 'active',
+          actualStartTime: now
+        };
+      }
+      return match;
+    });
     this.saveMatches(updatedMatches);
   }
 

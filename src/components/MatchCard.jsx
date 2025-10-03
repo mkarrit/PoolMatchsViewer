@@ -47,6 +47,8 @@ export default memo(function MatchCard({ match }) {
   const matchStatus = useMemo(() => {
     const getStatusColor = () => {
       switch (match.status) {
+        case 'waiting':
+          return 'text-text-muted';
         case 'paused':
           return 'text-warning';
         case 'finished':
@@ -58,6 +60,8 @@ export default memo(function MatchCard({ match }) {
 
     const getStatusIcon = () => {
       switch (match.status) {
+        case 'waiting':
+          return '⏳';
         case 'paused':
           return '⏸️';
         case 'finished':
@@ -69,6 +73,8 @@ export default memo(function MatchCard({ match }) {
 
     const getCardBorderClass = () => {
       switch (match.status) {
+        case 'waiting':
+          return 'border border-text-muted/40 shadow-lg shadow-text-muted/10';
         case 'paused':
           return 'border border-warning/40 shadow-lg shadow-warning/10';
         case 'finished':
@@ -80,6 +86,8 @@ export default memo(function MatchCard({ match }) {
 
     const getBackgroundClass = () => {
       switch (match.status) {
+        case 'waiting':
+          return 'bg-gradient-to-br from-text-muted/8 via-glass-medium to-primary/80 backdrop-blur-xl';
         case 'paused':
           return 'bg-gradient-to-br from-warning/8 via-glass-medium to-primary/80 backdrop-blur-xl';
         case 'finished':
@@ -190,6 +198,15 @@ export default memo(function MatchCard({ match }) {
       </div>
         
       {/* Statuts - RESPONSIVE */}
+      {match.status === 'waiting' && (
+        <div className="bg-glass-medium backdrop-blur-lg border border-text-muted/30 rounded-lg p-1.5 sm:p-2 shadow-sm">
+          <div className="flex items-center justify-center gap-1 sm:gap-2">
+            <div className="w-1.5 sm:w-2 h-1.5 sm:h-2 bg-text-muted rounded-full animate-pulse"></div>
+            <span className="text-text-muted font-semibold text-xs sm:text-sm tracking-wide">EN ATTENTE</span>
+          </div>
+        </div>
+      )}
+      
       {match.status === 'paused' && (
         <div className="bg-glass-medium backdrop-blur-lg border border-warning/30 rounded-lg p-1.5 sm:p-2 shadow-sm">
           <div className="flex items-center justify-center gap-1 sm:gap-2">

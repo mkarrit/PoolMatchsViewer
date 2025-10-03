@@ -12,7 +12,7 @@ export default function AdminPage({ addToast }) {
   const [showTableConfig, setShowTableConfig] = useState(false);
   const [availableTables, setAvailableTables] = useState([]);
 
-  const { matches, addMatch, removeMatch, clearAllMatches, updateMatchStatus, error } = useMatches();
+  const { matches, addMatch, removeMatch, clearAllMatches, updateMatchStatus, error, startMatchTimer, startAllTimers } = useMatches();
   const { fetchMatchData, loading: apiLoading } = useCueScore();
   const { tables: dynamicTables } = useTables();
 
@@ -143,6 +143,35 @@ export default function AdminPage({ addToast }) {
     }
   };
 
+  const handleStartTimer = async (matchId) => {
+    const match = matches.find(m => m.id === matchId);
+    if (!match) return;
+
+    const result = await startMatchTimer(matchId);
+    if (result.success) {
+      addToast(`Timer démarré: ${match.player1} vs ${match.player2}`, 'success');
+    } else {
+      addToast(result.error, 'error');
+    }
+  };
+
+  const handleStartAllTimers = async () => {
+    const waitingMatches = matches.filter(m => m.status === 'waiting');
+    if (waitingMatches.length === 0) {
+      addToast('Aucun match en attente', 'warning');
+      return;
+    }
+
+    if (window.confirm(`Êtes-vous sûr de vouloir démarrer tous les ${waitingMatches.length} matchs en attente ?`)) {
+      const result = await startAllTimers();
+      if (result.success) {
+        addToast(`${waitingMatches.length} timer(s) démarré(s)`, 'success');
+      } else {
+        addToast(result.error, 'error');
+      }
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-surface via-primary to-secondary p-6">
       <div className="max-w-6xl mx-auto">
@@ -223,14 +252,24 @@ export default function AdminPage({ addToast }) {
         <div className="bg-glass-medium backdrop-blur-xl rounded-2xl p-6 border border-white/10 shadow-xl">
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-xl font-bold text-text-primary">Liste des matchs ({matches.length})</h2>
-            {matches.length > 0 && (
-              <button 
-                onClick={handleClearAll}
-                className="px-4 py-2 bg-error hover:bg-error/80 rounded-lg text-sm font-medium transition-all duration-300 text-white shadow-lg shadow-error/30"
-              >
-                🗑️ Tout supprimer
-              </button>
-            )}
+            <div className="flex gap-3">
+              {matches.some(m => m.status === 'waiting') && (
+                <button 
+                  onClick={handleStartAllTimers}
+                  className="px-4 py-2 bg-success hover:bg-success/80 rounded-lg text-sm font-medium transition-all duration-300 text-white shadow-lg shadow-success/30"
+                >
+                  ▶️ Démarrer tous les timers
+                </button>
+              )}
+              {matches.length > 0 && (
+                <button 
+                  onClick={handleClearAll}
+                  className="px-4 py-2 bg-error hover:bg-error/80 rounded-lg text-sm font-medium transition-all duration-300 text-white shadow-lg shadow-error/30"
+                >
+                  🗑️ Tout supprimer
+                </button>
+              )}
+            </div>
           </div>
 
           {matches.length === 0 ? (
@@ -263,12 +302,14 @@ export default function AdminPage({ addToast }) {
                         {match.maxDurationMinutes} min
                       </span>
                       <span className={`px-2 py-1 rounded text-sm font-medium ${
+                        match.status === 'waiting' ? 'bg-text-muted text-white' :
                         match.status === 'active' ? 'bg-success text-white' :
                         match.status === 'paused' ? 'bg-warning text-white' :
                         match.status === 'finished' ? 'bg-gray-500 text-white' :
                         'bg-success text-white'
                       }`}>
-                        {match.status === 'active' || !match.status ? 'En cours' :
+                        {match.status === 'waiting' ? 'En attente' :
+                         match.status === 'active' ? 'En cours' :
                          match.status === 'paused' ? 'Pause' :
                          match.autoFinished ? 'Temps écoulé' : 'Terminé'}
                       </span>
@@ -276,7 +317,14 @@ export default function AdminPage({ addToast }) {
 
                     {/* Boutons d'action - Plus visibles */}
                     <div className="flex gap-2">
-                      {(!match.status || match.status === 'active') && (
+                      {match.status === 'waiting' && (
+                        <button onClick={() => handleStartTimer(match.id)}
+                          className="px-4 py-2 bg-success text-white hover:bg-success/80 rounded text-sm font-medium transition-all duration-200"
+                          title="Démarrer le timer">
+                          ▶️ Démarrer
+                        </button>
+                      )}
+                      {match.status === 'active' && (
                         <button onClick={() => handleStatusChange(match.id, 'paused')}
                           className="px-4 py-2 bg-warning text-white hover:bg-warning/80 rounded text-sm font-medium transition-all duration-200"
                           title="Mettre en pause">

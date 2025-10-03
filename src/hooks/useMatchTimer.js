@@ -11,7 +11,13 @@ export function useMatchTimer(match, onTimeExpired) {
 
   useEffect(() => {
     const calculateRemainingTime = () => {
-      const startTime = new Date(match.startTime);
+      // Si le match n'a pas encore démarré (status waiting), retourner le temps max
+      if (match.status === 'waiting') {
+        return match.maxDurationMinutes * 60;
+      }
+
+      // Utiliser actualStartTime si disponible, sinon startTime
+      const startTime = new Date(match.actualStartTime || match.startTime);
       const now = Date.now();
       const maxDurationMs = match.maxDurationMinutes * 60 * 1000;
       
@@ -49,8 +55,8 @@ export function useMatchTimer(match, onTimeExpired) {
         lastCalculatedTimeRef.current = newTime;
         setRemainingTime(newTime);
         
-        // Vérifier si le temps est écoulé
-        if (newTime === 0 && match.status !== 'finished' && onTimeExpired) {
+        // Vérifier si le temps est écoulé (seulement pour les matchs actifs)
+        if (newTime === 0 && match.status === 'active' && onTimeExpired) {
           onTimeExpired(match.id);
         }
       }
@@ -73,6 +79,7 @@ export function useMatchTimer(match, onTimeExpired) {
     };
   }, [
     match.startTime,
+    match.actualStartTime,
     match.status,
     match.totalPausedTime,
     match.pausedAt,
