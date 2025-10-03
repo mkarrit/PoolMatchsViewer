@@ -8,21 +8,21 @@ import { useToast } from "./hooks/useToast";
 
 // Mémoriser la navigation pour éviter les re-renders
 const Navigation = memo(() => (
-  <nav className="bg-glass-medium backdrop-blur-xl border-b border-white/10 shadow-lg">
-    <div className="max-w-7xl mx-auto px-6 py-4">
-      <div className="flex items-center gap-6">
+  <nav className="bg-glass-medium backdrop-blur-xl border-b border-white/10">
+    <div className="max-w-7xl mx-auto px-4 py-2">
+      <div className="flex items-center gap-4">
         <Link 
           to="/" 
-          className="flex items-center gap-2 text-text-primary hover:text-accent transition-colors duration-300 font-semibold"
+          className="flex items-center gap-1 text-text-primary hover:text-accent transition-colors duration-200 text-sm"
         >
-          📺 Mode TV
+          📺 TV
         </Link>
-        <div className="w-px h-6 bg-white/20"></div>
+        <div className="w-px h-4 bg-white/10"></div>
         <Link 
           to="/admin" 
-          className="flex items-center gap-2 text-text-primary hover:text-accent transition-colors duration-300 font-semibold"
+          className="flex items-center gap-1 text-text-primary hover:text-accent transition-colors duration-200 text-sm"
         >
-          ⚙️ Mode Admin
+          ⚙️ Admin
         </Link>
       </div>
     </div>
