@@ -105,6 +105,28 @@ export function useMatches() {
     }
   };
 
+  const startMatchTimer = (matchId) => {
+    try {
+      setError(null);
+      matchStore.startMatchTimer(matchId);
+      return { success: true };
+    } catch (err) {
+      setError(err.message);
+      return { success: false, error: err.message };
+    }
+  };
+
+  const startAllTimers = () => {
+    try {
+      setError(null);
+      matchStore.startAllTimers();
+      return { success: true };
+    } catch (err) {
+      setError(err.message);
+      return { success: false, error: err.message };
+    }
+  };
+
   return {
     matches,
     error,
@@ -114,6 +136,8 @@ export function useMatches() {
     updateMatch,
     updateMatchScores,
     clearAllMatches,
-    autoFinishMatch
+    autoFinishMatch,
+    startMatchTimer,
+    startAllTimers
   };
 }
