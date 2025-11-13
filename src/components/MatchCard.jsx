@@ -6,10 +6,10 @@ import { useMatchTimer } from "../hooks/useMatchTimer";
 // Fonctions pures pour les calculs de taille de texte (optimisées)
 const getNameTextSize = (name) => {
   const length = name?.length || 0;
-  if (length <= 12) return 'text-lg sm:text-xl xl:text-xl';
-  if (length <= 18) return 'text-base sm:text-lg xl:text-xl';
-  if (length <= 25) return 'text-sm sm:text-base xl:text-lg';
-  return 'text-xs sm:text-sm xl:text-base';
+  if (length <= 12) return 'text-xs sm:text-sm xs:text-base';
+  if (length <= 18) return 'text-xs sm:text-sm xs:text-base';
+  if (length <= 25) return 'text-xs sm:text-sm xs:text-base';
+  return 'text-xs sm:text-sm xs:text-base';
 };
 
 const getMobileNameTextSize = (name) => {
@@ -21,7 +21,7 @@ const getMobileNameTextSize = (name) => {
 
 const getTableTextSize = (tableName) => {
   const length = tableName?.length || 0;
-  return length <= 10 ? 'text-xs sm:text-sm' : 'text-xs';
+  return length <= 10 ? 'text-xl xl:text-xl' : 'text-xs'
 };
 
 export default memo(function MatchCard({ match }) {
@@ -106,7 +106,7 @@ export default memo(function MatchCard({ match }) {
   }, [match.status, match.autoFinished, remainingTime]);
 
   return (
-    <div className={`${matchStatus.backgroundClass} ${matchStatus.borderClass} text-text-primary p-3 sm:p-4 rounded-2xl w-full max-w-[380px] transition-all duration-300`}>
+    <div className={`${matchStatus.backgroundClass} ${matchStatus.borderClass} text-text-primary p-2 sm:p-4 rounded-2xl w-full max-w-[380px] transition-all duration-300`}>
       {/* En-tête avec numéro de table */}
       <div className="text-center mb-2 sm:mb-3">
         <div className="inline-flex items-center bg-glass-strong backdrop-blur-md border border-accent/40 text-accent px-2 sm:px-3 py-1 rounded-full font-semibold tracking-wide shadow-sm">
@@ -153,7 +153,7 @@ export default memo(function MatchCard({ match }) {
         {/* Version desktop - horizontale */}
         <div className="hidden sm:flex items-center justify-between">
           <div className="flex-1 text-center space-y-2 min-w-0 px-1">
-            <div className={`${computedStyles.player1TextSize} font-black text-text-primary bg-glass-light px-2 py-1.5 rounded-lg border border-white/20 shadow-md leading-tight`}>
+            <div className={`${computedStyles.player1TextSize} font-black text-text-primary px-2 leading-tight`}>
               {match.player1}
             </div>
             <div className="text-2xl xl:text-3xl font-bold text-accent">
@@ -169,7 +169,7 @@ export default memo(function MatchCard({ match }) {
           </div>
           
           <div className="flex-1 text-center space-y-2 min-w-0 px-1">
-            <div className={`${computedStyles.player2TextSize} font-black text-text-primary bg-glass-light px-2 py-1.5 rounded-lg border border-white/20 shadow-md leading-tight`}>
+            <div className={`${computedStyles.player2TextSize} font-black text-text-primary px-2 leading-tight`}>
               {match.player2}
             </div>
             <div className="text-2xl xl:text-3xl font-bold text-accent">
