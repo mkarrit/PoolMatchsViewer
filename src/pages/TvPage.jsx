@@ -1,5 +1,6 @@
 import React, { memo, useMemo } from "react";
 import MatchCard from "../components/MatchCard";
+import EditableTitle from "../components/EditableTitle";
 import { useMatches } from "../hooks/useMatches";
 import { useScoreUpdater } from "../hooks/useScoreUpdater";
 
@@ -16,10 +17,7 @@ const TvHeader = memo(() => (
         <div className="absolute inset-0 bg-accent/10 rounded-full blur-lg"></div>
       </div>
       <div>
-        <h1 className="text-3xl font-black text-text-primary tracking-tight">
-          Matches en cours
-        </h1>
-        <p className="text-accent font-semibold tracking-wide text-sm">BlackBall TD n°1 Gironde - LE LIVERPOOL - 2025/2026</p>
+        <EditableTitle />
       </div>
     </div>
   </div>
