@@ -4,15 +4,6 @@
 
 // Configuration par défaut des tables (fallback)
 const defaultTables = [
-  { id: 1, name: "Table 1", code: "f8c4bd61" },
-  { id: 2, name: "Table 2", code: "a3b9ae98" },
-  { id: 3, name: "Table 3", code: "dc64dc33" },
-  { id: 4, name: "Table 4", code: "89869242" },
-  { id: 5, name: "Table 5", code: "670487c4" },
-  { id: 6, name: "Table 6", code: "6caca43c" },
-  { id: 7, name: "Table 7", code: "143accfc" },
-  { id: 8, name: "Table 8", code: "089ce6b4" },
-  { id: 9, name: "Table 9", code: "e3b48627" }
 ];
 
 // Fonction pour récupérer les tables (depuis localStorage ou par défaut)
