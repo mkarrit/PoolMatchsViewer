@@ -4,6 +4,7 @@ import { useCueScore } from "../hooks/useCueScore";
 import { useTables } from "../hooks/useTables";
 import { getTables } from "../utils/config";
 import TableConfig from "../components/TableConfig";
+import ThemeSelector from "../components/ThemeSelector";
 
 export default function AdminPage({ addToast }) {
   const [tableId, setTableId] = useState("");
@@ -223,7 +224,7 @@ export default function AdminPage({ addToast }) {
               className={`px-6 py-3 rounded-lg transition-all duration-300 text-white font-semibold shadow-lg ${
                 apiLoading 
                   ? 'bg-gray-500 cursor-not-allowed' 
-                  : 'bg-gradient-to-r from-accent-dark to-accent hover:from-accent to-accent-light shadow-accent/30 hover:shadow-accent/50'
+                  : 'bg-accent hover:bg-accent/80 shadow-accent/30 hover:shadow-accent/50'
               }`}
             >
               {apiLoading ? '⏳ Récupération...' : '➕ Ajouter'}
@@ -374,6 +375,11 @@ export default function AdminPage({ addToast }) {
               ))}
             </div>
           )}
+        </div>
+
+        {/* Sélecteur de thème */}
+        <div className="mt-8">
+          <ThemeSelector addToast={addToast} />
         </div>
       </div>
 

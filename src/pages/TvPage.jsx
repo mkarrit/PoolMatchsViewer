@@ -3,16 +3,20 @@ import MatchCard from "../components/MatchCard";
 import EditableTitle from "../components/EditableTitle";
 import { useMatches } from "../hooks/useMatches";
 import { useScoreUpdater } from "../hooks/useScoreUpdater";
+import { useTheme } from "../hooks/useTheme";
 
 // Mémoriser le header pour éviter les re-renders
-const TvHeader = memo(() => (
+const TvHeader = memo(({ currentTheme }) => (
   <div className="bg-glass-medium backdrop-blur-xl rounded-2xl p-4 mb-8 border border-white/10 shadow-xl shadow-accent/5">
     <div className="flex items-center gap-4">
       <div className="relative">
         <img 
-          src="/FFBillard_logo.png" 
-          alt="FFBillard Logo" 
+          src={currentTheme?.logo || "/FFBillard_logo.png"}
+          alt={`${currentTheme?.name || "FFBillard"} Logo`}
           className="h-12 w-auto drop-shadow-lg"
+          onError={(e) => {
+            e.target.src = "/FFBillard_logo.png";
+          }}
         />
         <div className="absolute inset-0 bg-accent/10 rounded-full blur-lg"></div>
       </div>
@@ -36,6 +40,7 @@ const NoMatchesMessage = memo(() => (
 
 export default function TvPage() {
   const { matches, updateMatchScores } = useMatches();
+  const { currentTheme } = useTheme();
 
   // Activer la mise à jour automatique des scores
   useScoreUpdater(matches, updateMatchScores);
@@ -49,7 +54,7 @@ export default function TvPage() {
 
   return (
     <div className="bg-gradient-to-br from-surface via-primary to-secondary min-h-screen flex flex-col items-center p-6">
-      <TvHeader />
+      <TvHeader currentTheme={currentTheme} />
       
       {matches.length === 0 ? <NoMatchesMessage /> : matchesGrid}
     </div>
