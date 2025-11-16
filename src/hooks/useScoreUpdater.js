@@ -24,17 +24,12 @@ export function useScoreUpdater(matches, updateMatchScores) {
       );
 
       if (activeMatches.length === 0) {
-        console.log('Aucun match actif à mettre à jour');
         return;
       }
-
-      console.log(`🔄 Mise à jour des scores pour ${activeMatches.length} match(s) actif(s)`);
 
       // Mettre à jour les scores de tous les matchs actifs
       for (const match of activeMatches) {
         try {
-          console.log(`Mise à jour du score pour la table ${match.tableName || match.table}`);
-          
           const result = await fetchMatchData(match.tableCode);
           
           if (result.success && result.data) {
@@ -43,20 +38,14 @@ export function useScoreUpdater(matches, updateMatchScores) {
             
             // Mettre à jour seulement si les scores ont changé
             if (newScoreA !== match.scoreA || newScoreB !== match.scoreB) {
-              console.log(`✅ Scores mis à jour: ${match.player1} ${newScoreA}-${newScoreB} ${match.player2}`);
-              
               await updateMatchScores(match.id, {
                 scoreA: newScoreA,
                 scoreB: newScoreB,
                 lastScoreUpdate: new Date().toISOString()
               });
-            } else {
-              console.log(`⏸️ Aucun changement de score pour ${match.tableName || match.table}`);
             }
-          } else if (result.error === 'NOMATCH') {
-            console.log(`⏸️ Match pas encore lancé pour ${match.tableName || match.table}`);
-            // Ne pas considérer cela comme une erreur, c'est normal
-          } else {
+          } else if (result.error !== 'NOMATCH') {
+            // Ignorer silencieusement NOMATCH (match pas encore lancé)
             console.warn(`Aucune donnée valide pour ${match.tableName || match.table}`);
           }
         } catch (err) {

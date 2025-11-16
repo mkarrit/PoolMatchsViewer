@@ -40,7 +40,7 @@ export default function EditableTitle({ storageKey = "tv_title", defaultTitle = 
       const storedSub = localStorage.getItem(storageSubKey);
       if (storedTitle) setTitle(storedTitle);
       if (storedSub) setSubtitle(storedSub);
-    } catch (e) {
+    } catch {
       // ignore localStorage errors
     }
   }, [storageKey, storageSubKey]);
@@ -62,7 +62,7 @@ export default function EditableTitle({ storageKey = "tv_title", defaultTitle = 
         localStorage.setItem(storageSubKey, subtitle);
         setEditing((s) => ({ ...s, subtitle: false }));
       }
-    } catch (e) {
+    } catch {
       setEditing({ title: false, subtitle: false });
     }
   }
@@ -78,7 +78,7 @@ export default function EditableTitle({ storageKey = "tv_title", defaultTitle = 
         setSubtitle(stored || defaultSubtitle);
         setEditing((s) => ({ ...s, subtitle: false }));
       }
-    } catch (e) {
+    } catch {
       setEditing({ title: false, subtitle: false });
     }
   }
