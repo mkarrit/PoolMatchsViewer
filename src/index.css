@@ -2,9 +2,11 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Variables CSS pour les thèmes */
+/* Variables CSS pour les thèmes.
+   Ces valeurs sont la référence au premier rendu ; useTheme les surcharge
+   ensuite sur :root en fonction du thème enregistré. */
 :root {
-  /* Thème par défaut FFB - COULEURS ORIGINALES CONSERVÉES */
+  /* Thème par défaut FFB */
   --color-primary: #0f172a;
   --color-secondary: #1e293b;
   --color-accent: #06b6d4;
@@ -17,6 +19,13 @@
   --color-success: #059669;
   --color-warning: #d97706;
   --color-error: #dc2626;
+
+  /* Halos d'arrière-plan : une couleur ne peut pas recevoir d'opacité en
+     concaténant des chiffres à une variable (`var(--x)05` est invalide et la
+     déclaration entière était ignorée). On passe par color-mix. */
+  --bg-glow-strong: color-mix(in srgb, var(--color-accent) 6%, transparent);
+  --bg-glow-soft: color-mix(in srgb, var(--color-accent) 4%, transparent);
+  --bg-glow-faint: color-mix(in srgb, var(--color-accent) 2%, transparent);
 }
 
 /* Thème Ultimate Pool - Inspiré du site officiel ultimatepoolgroup.com */
@@ -36,10 +45,12 @@
 }
 
 body {
+  margin: 0;
   background-color: var(--color-surface);
   color: var(--color-text-primary);
-  background-image: 
-    radial-gradient(at 20% 50%, var(--color-accent)05 0px, transparent 50%),
-    radial-gradient(at 80% 20%, var(--color-accent)03 0px, transparent 50%),
-    radial-gradient(at 40% 80%, var(--color-accent)02 0px, transparent 50%);
+  background-image:
+    radial-gradient(at 20% 50%, var(--bg-glow-strong) 0px, transparent 50%),
+    radial-gradient(at 80% 20%, var(--bg-glow-soft) 0px, transparent 50%),
+    radial-gradient(at 40% 80%, var(--bg-glow-faint) 0px, transparent 50%);
+  background-attachment: fixed;
 }

@@ -1,43 +1,34 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { useMatches } from "../hooks/useMatches";
 import { useCueScore } from "../hooks/useCueScore";
 import { useTables } from "../hooks/useTables";
-import { getTables } from "../utils/config";
+import { appConfig } from "../utils/config";
 import TableConfig from "../components/TableConfig";
 import ThemeSelector from "../components/ThemeSelector";
 
 export default function AdminPage({ addToast }) {
   const [tableId, setTableId] = useState("");
-  const [maxDuration, setMaxDuration] = useState("");
+  const [maxDuration, setMaxDuration] = useState(String(appConfig.match.defaultDuration));
   const [showConfirmDelete, setShowConfirmDelete] = useState(null);
   const [showTableConfig, setShowTableConfig] = useState(false);
-  const [availableTables, setAvailableTables] = useState([]);
 
   const { matches, addMatch, removeMatch, clearAllMatches, updateMatchStatus, error, startMatchTimer, startAllTimers } = useMatches();
   const { fetchMatchData, loading: apiLoading } = useCueScore();
-  const { tables: dynamicTables } = useTables();
+  // useTables se resynchronise seul sur l'evenement `tablesUpdated` :
+  // pas besoin de dupliquer le chargement ni l'ecouteur ici.
+  const { tables: availableTables } = useTables();
 
-  // Charger les tables disponibles
-  useEffect(() => {
-    const loadTables = () => {
-      setAvailableTables(getTables());
-    };
-    
-    loadTables();
-    
-    // Écouter les mises à jour des tables
-    const handleTablesUpdate = () => {
-      loadTables();
-    };
-    
-    window.addEventListener('tablesUpdated', handleTablesUpdate);
-    return () => window.removeEventListener('tablesUpdated', handleTablesUpdate);
-  }, [dynamicTables]);
+  const { minDuration, maxDuration: maxAllowedDuration } = appConfig.match;
+  const hasTables = availableTables.length > 0;
 
   const handleAdd = async () => {
     const duration = Number(maxDuration);
-    if (!duration || duration <= 0) {
+    if (!duration || Number.isNaN(duration)) {
       addToast('La durée du match est obligatoire', 'error');
+      return;
+    }
+    if (duration < minDuration || duration > maxAllowedDuration) {
+      addToast(`La durée doit être comprise entre ${minDuration} et ${maxAllowedDuration} minutes`, 'error');
       return;
     }
 
@@ -46,65 +37,57 @@ export default function AdminPage({ addToast }) {
       return;
     }
 
-    const selectedTable = availableTables.find(t => t.id === parseInt(tableId));
+    const selectedTable = availableTables.find(t => t.id === Number.parseInt(tableId, 10));
     if (!selectedTable) {
       addToast('Table invalide', 'error');
       return;
     }
 
-    try {
-      // Récupérer les données du match depuis l'API CueScore
-      addToast('Récupération des données du match...', 'info');
-      const apiResult = await fetchMatchData(selectedTable.code);
-      
-      if (!apiResult.success) {
-        if (apiResult.error === 'NOMATCH') {
-          addToast('Aucun match en cours sur cette table. Veuillez attendre que le match soit lancé.', 'warning');
-          return;
-        } else {
-          addToast('Impossible de récupérer les données du match', 'error');
-          return;
-        }
-      }
+    // Récupérer les données du match depuis l'API CueScore
+    addToast('Récupération des données du match...', 'info');
+    const apiResult = await fetchMatchData(selectedTable.code);
 
-      const matchData = apiResult.data;
-      
-      // Vérifier que les noms des joueurs sont disponibles
-      if (!matchData.playerA?.name || !matchData.playerB?.name) {
-        addToast('Les noms des joueurs ne sont pas encore disponibles. Attendez que le match soit entièrement configuré.', 'warning');
-        return;
-      }
+    if (!apiResult.success) {
+      // Le hook produit déjà un message lisible pour chaque cas (NOMATCH,
+      // NOTABLE, panne réseau) : on le relaie tel quel.
+      addToast(apiResult.message, apiResult.error === 'NOMATCH' ? 'warning' : 'error');
+      return;
+    }
 
-      const player1Name = matchData.playerA.name;
-      const player2Name = matchData.playerB.name;
+    const matchData = apiResult.data;
 
-      // Ajouter le match avec les données de l'API
-      const result = await addMatch(player1Name, player2Name, selectedTable.id.toString(), duration, {
-        cueScoreData: matchData,
-        scoreA: matchData.scoreA || 0,
-        scoreB: matchData.scoreB || 0,
-        tableCode: selectedTable.code,
-        tableName: selectedTable.name
-      });
-      
-      if (result.success) {
-        addToast(`Match ajouté: ${player1Name} vs ${player2Name} (${selectedTable.name}) - ${duration} min`, 'success');
-        setTableId("");
-        setMaxDuration("");
-      } else {
-        addToast(result.error, 'error');
-      }
-    } catch (err) {
-      addToast(`Erreur API: ${err.message}`, 'error');
+    if (!matchData.playerA?.name || !matchData.playerB?.name) {
+      addToast('Les noms des joueurs ne sont pas encore disponibles. Attendez que le match soit entièrement configuré.', 'warning');
+      return;
+    }
+
+    const player1Name = matchData.playerA.name;
+    const player2Name = matchData.playerB.name;
+
+    const result = addMatch(player1Name, player2Name, selectedTable.id.toString(), duration, {
+      cueScoreData: matchData,
+      scoreA: Number(matchData.scoreA) || 0,
+      scoreB: Number(matchData.scoreB) || 0,
+      raceTo: Number(matchData.raceTo) || null,
+      tableCode: selectedTable.code,
+      tableName: selectedTable.name
+    });
+
+    if (result.success) {
+      addToast(`Match ajouté: ${player1Name} vs ${player2Name} (${selectedTable.name}) - ${duration} min`, 'success');
+      setTableId("");
+      setMaxDuration(String(appConfig.match.defaultDuration));
+    } else {
+      addToast(result.error, 'error');
     }
   };
 
-  const handleRemove = async (matchId) => {
+  const handleRemove = (matchId) => {
     const match = matches.find(m => m.id === matchId);
     if (!match) return;
 
-    const result = await removeMatch(matchId);
-    
+    const result = removeMatch(matchId);
+
     if (result.success) {
       addToast(`Match supprimé: ${match.player1} vs ${match.player2}`, 'success');
       setShowConfirmDelete(null);
@@ -113,17 +96,17 @@ export default function AdminPage({ addToast }) {
     }
   };
 
-  const handleStatusChange = async (matchId, newStatus) => {
+  const handleStatusChange = (matchId, newStatus) => {
     const match = matches.find(m => m.id === matchId);
     if (!match) return;
 
-    const result = await updateMatchStatus(matchId, newStatus);
-    
+    const result = updateMatchStatus(matchId, newStatus);
+
     if (result.success) {
       const statusMessages = {
-        'active': 'Match repris',
-        'paused': 'Match mis en pause',
-        'finished': 'Match terminé'
+        active: match.status === 'paused' ? 'Match repris' : 'Match démarré',
+        paused: 'Match mis en pause',
+        finished: 'Match terminé'
       };
       addToast(`${statusMessages[newStatus]}: ${match.player1} vs ${match.player2}`, 'success');
     } else {
@@ -131,11 +114,11 @@ export default function AdminPage({ addToast }) {
     }
   };
 
-  const handleClearAll = async () => {
+  const handleClearAll = () => {
     if (matches.length === 0) return;
-    
+
     if (window.confirm(`Êtes-vous sûr de vouloir supprimer tous les ${matches.length} matchs ?`)) {
-      const result = await clearAllMatches();
+      const result = clearAllMatches();
       if (result.success) {
         addToast('Tous les matchs ont été supprimés', 'success');
       } else {
@@ -144,11 +127,11 @@ export default function AdminPage({ addToast }) {
     }
   };
 
-  const handleStartTimer = async (matchId) => {
+  const handleStartTimer = (matchId) => {
     const match = matches.find(m => m.id === matchId);
     if (!match) return;
 
-    const result = await startMatchTimer(matchId);
+    const result = startMatchTimer(matchId);
     if (result.success) {
       addToast(`Timer démarré: ${match.player1} vs ${match.player2}`, 'success');
     } else {
@@ -156,7 +139,7 @@ export default function AdminPage({ addToast }) {
     }
   };
 
-  const handleStartAllTimers = async () => {
+  const handleStartAllTimers = () => {
     const waitingMatches = matches.filter(m => m.status === 'waiting');
     if (waitingMatches.length === 0) {
       addToast('Aucun match en attente', 'warning');
@@ -164,7 +147,7 @@ export default function AdminPage({ addToast }) {
     }
 
     if (window.confirm(`Êtes-vous sûr de vouloir démarrer tous les ${waitingMatches.length} matchs en attente ?`)) {
-      const result = await startAllTimers();
+      const result = startAllTimers();
       if (result.success) {
         addToast(`${waitingMatches.length} timer(s) démarré(s)`, 'success');
       } else {
@@ -174,7 +157,7 @@ export default function AdminPage({ addToast }) {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-surface via-primary to-secondary p-6">
+    <div className="p-6 pb-14">
       <div className="max-w-6xl mx-auto">
         {/* Header Admin */}
         <div className="bg-glass-medium backdrop-blur-xl rounded-2xl p-6 mb-8 border border-white/10 shadow-xl">
@@ -196,10 +179,12 @@ export default function AdminPage({ addToast }) {
         <div className="bg-glass-medium backdrop-blur-xl rounded-2xl p-6 mb-8 border border-white/10 shadow-xl">
           <h2 className="text-xl font-bold text-text-primary mb-6">Ajouter un nouveau match</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-            <select 
-              className="px-4 py-3 rounded-lg bg-glass-light backdrop-blur-md text-text-primary border border-white/20 focus:border-accent focus:outline-none transition-all duration-300"
-              value={tableId} 
+            <select
+              className="px-4 py-3 rounded-lg bg-glass-light backdrop-blur-md text-text-primary border border-white/20 focus:border-accent focus:outline-none transition-all duration-300 disabled:opacity-50"
+              value={tableId}
               onChange={(e) => setTableId(e.target.value)}
+              disabled={!hasTables}
+              aria-label="Table de jeu"
             >
               <option value="" className="bg-primary text-text-muted">Sélectionnez une table</option>
               {availableTables.map(table => (
@@ -208,29 +193,39 @@ export default function AdminPage({ addToast }) {
                 </option>
               ))}
             </select>
-            <input 
+            <input
               className="px-4 py-3 rounded-lg bg-glass-light backdrop-blur-md text-text-primary border-2 border-accent/50 focus:border-accent focus:outline-none transition-all duration-300 placeholder-text-muted"
-              placeholder="Durée max (min) *" 
+              placeholder={`Durée max (${minDuration}-${maxAllowedDuration} min) *`}
               type="number"
-              min="1"
-              max="180"
-              value={maxDuration} 
-              onChange={(e) => setMaxDuration(e.target.value)} 
-              title="Durée maximale en minutes (obligatoire)"
+              min={minDuration}
+              max={maxAllowedDuration}
+              value={maxDuration}
+              onChange={(e) => setMaxDuration(e.target.value)}
+              title={`Durée maximale en minutes (entre ${minDuration} et ${maxAllowedDuration})`}
+              aria-label="Durée maximale du match en minutes"
             />
-            <button 
-              onClick={handleAdd} 
-              disabled={apiLoading}
+            <button
+              onClick={handleAdd}
+              disabled={apiLoading || !hasTables}
               className={`px-6 py-3 rounded-lg transition-all duration-300 text-white font-semibold shadow-lg ${
-                apiLoading 
-                  ? 'bg-gray-500 cursor-not-allowed' 
+                apiLoading || !hasTables
+                  ? 'bg-gray-500 cursor-not-allowed'
                   : 'bg-accent hover:bg-accent/80 shadow-accent/30 hover:shadow-accent/50'
               }`}
             >
               {apiLoading ? '⏳ Récupération...' : '➕ Ajouter'}
             </button>
           </div>
-          
+
+          {!hasTables && (
+            <div className="bg-warning/10 border border-warning/30 rounded-lg p-3 mb-4">
+              <p className="text-sm text-warning font-medium">
+                Aucune table configurée. Ouvrez "Configurer les tables de jeux" et renseignez
+                le nom et le code CueScore de chaque table avant d'ajouter un match.
+              </p>
+            </div>
+          )}
+
           <div className="text-sm text-text-muted bg-glass-light rounded-lg p-3 border border-white/10">
             <div className="flex items-center gap-2 mb-2">
               <div className="w-2 h-2 bg-accent rounded-full"></div>
@@ -238,7 +233,7 @@ export default function AdminPage({ addToast }) {
             </div>
             <p>Les noms des joueurs et leurs scores seront automatiquement récupérés depuis CueScore lors de l'ajout du match.</p>
           </div>
-          
+
           {error && (
             <div className="bg-error/10 border border-error/30 rounded-lg p-3 mt-4">
               <div className="flex items-center gap-2 text-error">
@@ -255,7 +250,7 @@ export default function AdminPage({ addToast }) {
             <h2 className="text-xl font-bold text-text-primary">Liste des matchs ({matches.length})</h2>
             <div className="flex gap-3">
               {matches.some(m => m.status === 'waiting') && (
-                <button 
+                <button
                   onClick={handleStartAllTimers}
                   className="px-4 py-2 bg-success hover:bg-success/80 rounded-lg text-sm font-medium transition-all duration-300 text-white shadow-lg shadow-success/30"
                 >
@@ -263,7 +258,7 @@ export default function AdminPage({ addToast }) {
                 </button>
               )}
               {matches.length > 0 && (
-                <button 
+                <button
                   onClick={handleClearAll}
                   className="px-4 py-2 bg-error hover:bg-error/80 rounded-lg text-sm font-medium transition-all duration-300 text-white shadow-lg shadow-error/30"
                 >
@@ -366,7 +361,7 @@ export default function AdminPage({ addToast }) {
                       )}
                     </div>
                   </div>
-                  
+
                   {/* Infos temporelles en petite ligne */}
                   <div className="text-xs text-text-muted mt-2 pl-3">
                     Commencé le {new Date(match.startTime).toLocaleString('fr-FR')}
@@ -384,7 +379,7 @@ export default function AdminPage({ addToast }) {
       </div>
 
       {/* Modal de configuration des tables */}
-      <TableConfig 
+      <TableConfig
         isOpen={showTableConfig}
         onClose={() => setShowTableConfig(false)}
         addToast={addToast}

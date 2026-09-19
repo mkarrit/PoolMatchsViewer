@@ -2,13 +2,13 @@ import React from 'react';
 import { useTheme } from '../hooks/useTheme';
 
 export default function ThemeSelector({ addToast }) {
-  const { currentTheme, availableThemes, loading, error, changeTheme } = useTheme();
+  const { currentTheme, availableThemes, error, changeTheme } = useTheme();
 
   const handleThemeChange = (themeId) => {
     const result = changeTheme(themeId);
     if (result.success) {
       const theme = availableThemes.find(t => t.id === themeId);
-      addToast(`Thème changé vers "${theme.name}"`, 'success');
+      addToast(`Thème changé vers "${theme?.name ?? themeId}"`, 'success');
     } else {
       addToast(result.error, 'error');
     }
@@ -29,7 +29,7 @@ export default function ThemeSelector({ addToast }) {
       )}
 
       {/* Sélection des thèmes */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4" role="radiogroup" aria-label="Thème de l'application">
         {availableThemes.map((theme) => (
           <div
             key={theme.id}
@@ -39,9 +39,17 @@ export default function ThemeSelector({ addToast }) {
                 ? 'border-accent shadow-lg shadow-accent/30 bg-accent/5' 
                 : 'border-white/20 hover:border-white/40 bg-glass-light'
               }
-              ${loading ? 'opacity-50 cursor-not-allowed' : ''}
             `}
-            onClick={() => !loading && handleThemeChange(theme.id)}
+            role="radio"
+            tabIndex={0}
+            aria-checked={currentTheme.id === theme.id}
+            onClick={() => handleThemeChange(theme.id)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                handleThemeChange(theme.id);
+              }
+            }}
           >
             {/* Badge de sélection */}
             {currentTheme.id === theme.id && (
@@ -116,12 +124,6 @@ export default function ThemeSelector({ addToast }) {
               </div>
             </div>
 
-            {/* Overlay de chargement */}
-            {loading && (
-              <div className="absolute inset-0 bg-black/20 flex items-center justify-center">
-                <div className="animate-spin rounded-full h-6 w-6 border-2 border-white border-t-transparent"></div>
-              </div>
-            )}
           </div>
         ))}
       </div>

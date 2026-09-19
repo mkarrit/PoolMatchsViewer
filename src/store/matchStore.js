@@ -1,273 +1,291 @@
 import { matchValidators, MatchError, errorCodes } from '../utils/validation';
-import { getTables } from '../utils/config';
+import { appConfig, findTableById } from '../utils/config';
 
+const SAVE_DEBOUNCE_MS = 100;
+
+/**
+ * Store des matchs.
+ *
+ * La liste est tenue en mémoire et fait autorité ; localStorage n'est qu'un
+ * miroir persistant écrit en différé. Relire localStorage à chaque mutation
+ * ferait perdre toute modification encore en attente d'écriture (deux matchs
+ * terminés dans la même seconde, par exemple).
+ */
 class MatchStore {
   constructor() {
     this.listeners = new Set();
-    this.storageKey = 'poolMatches';
-    this.isInitialized = false;
-    
-    // Initialiser le store
+    this.storageKey = appConfig.storage.matchesKey;
+    this.saveTimeout = null;
+    this.hasPendingWrite = false;
+    this.storageAvailable = this.isStorageAvailable();
+    this.matches = this.readFromStorage();
+
     this.init();
   }
 
-  async init() {
-    try {
-      // Vérifier si localStorage est disponible
-      if (!this.isStorageAvailable()) {
-        console.warn('localStorage non disponible, utilisation de la mémoire');
-        this.fallbackStorage = [];
-      }
+  init() {
+    if (typeof window === 'undefined') return;
 
-      // Écouter les changements de localStorage (synchronisation cross-tab)
-      window.addEventListener('storage', (e) => {
-        if (e.key === this.storageKey) {
-          this.notifyListeners();
-        }
-      });
-      
-      // Écouter les changements dans le même onglet
-      window.addEventListener('matchesUpdated', () => {
-        this.notifyListeners();
-      });
+    // Synchronisation entre onglets : un autre onglet a écrit, on recharge.
+    window.addEventListener('storage', (e) => {
+      if (e.key !== this.storageKey) return;
+      this.matches = this.readFromStorage();
+      this.notifyListeners();
+    });
 
-      this.isInitialized = true;
-    } catch (error) {
-      console.error('Erreur lors de l\'initialisation du store:', error);
-      this.fallbackStorage = [];
-    }
+    // Garantit que la dernière écriture différée part avant la fermeture
+    // ou la mise en arrière-plan de l'onglet.
+    window.addEventListener('pagehide', () => this.flush());
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') this.flush();
+    });
   }
 
   isStorageAvailable() {
     try {
-      const test = 'test';
-      localStorage.setItem(test, test);
-      localStorage.removeItem(test);
+      const testKey = '__storage_test__';
+      localStorage.setItem(testKey, testKey);
+      localStorage.removeItem(testKey);
       return true;
     } catch {
+      console.warn('localStorage non disponible : les matchs ne seront pas persistés');
       return false;
     }
   }
 
-  // Récupérer tous les matchs
-  getMatches() {
+  readFromStorage() {
+    if (!this.storageAvailable) return [];
     try {
       const stored = localStorage.getItem(this.storageKey);
-      return stored ? JSON.parse(stored) : [];
+      const parsed = stored ? JSON.parse(stored) : [];
+      return Array.isArray(parsed) ? parsed : [];
     } catch (error) {
       console.error('Erreur lors de la lecture des matchs:', error);
       return [];
     }
   }
 
-  // Sauvegarder les matchs avec optimisations
-  saveMatches(matches) {
-    // Debounce pour éviter trop d'écritures
+  /** Renvoie la liste courante (référence stable tant qu'elle n'a pas changé). */
+  getMatches() {
+    return this.matches;
+  }
+
+  /**
+   * Applique une nouvelle liste : mise à jour immédiate en mémoire +
+   * notification, écriture localStorage regroupée.
+   */
+  commit(matches) {
+    this.matches = matches;
+    this.notifyListeners();
+    this.schedulePersist();
+  }
+
+  schedulePersist() {
+    if (!this.storageAvailable) return;
+    this.hasPendingWrite = true;
     clearTimeout(this.saveTimeout);
-    this.saveTimeout = setTimeout(() => {
-      try {
-        const dataToSave = JSON.stringify(matches);
-        // Vérifier la taille des données (limite typique 5-10MB)
-        if (dataToSave.length > 5000000) { // 5MB
-          console.warn('Données trop volumineuses pour localStorage');
-          return;
-        }
-        localStorage.setItem(this.storageKey, dataToSave);
-        // Déclencher un événement pour synchroniser le même onglet avec timestamp
-        window.dispatchEvent(new CustomEvent('matchesUpdated', { 
-          detail: { timestamp: Date.now() } 
-        }));
-      } catch (error) {
-        console.error('Erreur lors de la sauvegarde des matchs:', error);
+    this.saveTimeout = setTimeout(() => this.flush(), SAVE_DEBOUNCE_MS);
+  }
+
+  flush() {
+    // Sans écriture en attente, ne rien réécrire : un onglet resté inactif
+    // écraserait sinon, en se fermant, les données saisies dans un autre.
+    if (!this.storageAvailable || !this.hasPendingWrite) return;
+    clearTimeout(this.saveTimeout);
+    this.saveTimeout = null;
+    this.hasPendingWrite = false;
+    try {
+      const payload = JSON.stringify(this.matches);
+      if (payload.length > appConfig.storage.maxPayloadBytes) {
+        console.warn('Données trop volumineuses pour localStorage, écriture ignorée');
+        return;
       }
-    }, 100); // Debounce de 100ms
+      localStorage.setItem(this.storageKey, payload);
+    } catch (error) {
+      console.error('Erreur lors de la sauvegarde des matchs:', error);
+    }
   }
 
   // Ajouter un match
   addMatch(player1, player2, table, maxDurationMinutes, additionalData = {}) {
-    try {
-      const matches = this.getMatches();
-      
-      // Nettoyer et valider les entrées
-      const sanitized = matchValidators.sanitizeInputs(player1, player2, table);
-      const validation = matchValidators.validateNewMatch(
-        sanitized.player1, 
-        sanitized.player2, 
-        sanitized.table, 
-        maxDurationMinutes
-      );
+    const sanitized = matchValidators.sanitizeInputs(player1, player2, table);
+    const validation = matchValidators.validateNewMatch(
+      sanitized.player1,
+      sanitized.player2,
+      sanitized.table,
+      maxDurationMinutes
+    );
 
-      if (!validation.isValid) {
-        throw new MatchError(validation.errors[0], errorCodes.VALIDATION_ERROR, validation.errors);
-      }
-
-      // Vérifier la disponibilité de la table
-      const tableCheck = matchValidators.checkTableAvailability(sanitized.table, matches);
-      if (!tableCheck.isAvailable) {
-        throw new MatchError(
-          `La table ${sanitized.table} est déjà occupée par ${tableCheck.occupiedBy.player1} vs ${tableCheck.occupiedBy.player2}`,
-          errorCodes.TABLE_OCCUPIED,
-          tableCheck.occupiedBy
-        );
-      }
-
-      // Trouver la configuration de la table depuis les tables dynamiques
-      const availableTables = getTables();
-      const tableConfig = availableTables.find(t => t.id === parseInt(sanitized.table));
-      if (!tableConfig) {
-        throw new MatchError(
-          `Table ${sanitized.table} non trouvée dans la configuration`,
-          errorCodes.VALIDATION_ERROR
-        );
-      }
-
-      const newMatch = {
-        id: Date.now(),
-        player1: sanitized.player1,
-        player2: sanitized.player2,
-        table: sanitized.table,
-        tableCode: tableConfig.code, // Ajouter le code CueScore
-        tableName: tableConfig.name, // Ajouter le nom de la table
-        startTime: new Date().toISOString(),
-        status: 'waiting', // Nouveau statut par défaut
-        actualStartTime: null, // Temps de démarrage réel du timer
-        maxDurationMinutes: parseInt(maxDurationMinutes),
-        autoFinished: false,
-        totalPausedTime: 0,
-        // Ajouter les données supplémentaires (scores CueScore, etc.)
-        ...additionalData
-      };
-
-      const updatedMatches = [...matches, newMatch];
-      this.saveMatches(updatedMatches);
-      return newMatch;
-    } catch (error) {
-      if (error instanceof MatchError) {
-        throw error;
-      }
-      throw new MatchError('Erreur lors de l\'ajout du match', errorCodes.STORAGE_ERROR, error);
+    if (!validation.isValid) {
+      throw new MatchError(validation.errors[0], errorCodes.VALIDATION_ERROR, validation.errors);
     }
+
+    const tableCheck = matchValidators.checkTableAvailability(sanitized.table, this.matches);
+    if (!tableCheck.isAvailable) {
+      throw new MatchError(
+        `La table ${sanitized.table} est déjà occupée par ${tableCheck.occupiedBy.player1} vs ${tableCheck.occupiedBy.player2}`,
+        errorCodes.TABLE_OCCUPIED,
+        tableCheck.occupiedBy
+      );
+    }
+
+    const tableConfig = findTableById(sanitized.table);
+    if (!tableConfig) {
+      throw new MatchError(
+        `Table ${sanitized.table} non trouvée dans la configuration`,
+        errorCodes.VALIDATION_ERROR
+      );
+    }
+
+    const newMatch = {
+      id: this.generateId(),
+      player1: sanitized.player1,
+      player2: sanitized.player2,
+      table: sanitized.table,
+      tableCode: tableConfig.code,
+      tableName: tableConfig.name,
+      startTime: new Date().toISOString(),
+      status: 'waiting',
+      actualStartTime: null,
+      maxDurationMinutes: Number.parseInt(maxDurationMinutes, 10),
+      autoFinished: false,
+      totalPausedTime: 0,
+      ...additionalData,
+    };
+
+    this.commit([...this.matches, newMatch]);
+    return newMatch;
   }
 
-  // Supprimer un match
+  /** Identifiant unique même si deux matchs sont créés dans la même milliseconde. */
+  generateId() {
+    let id = Date.now();
+    while (this.matches.some((match) => match.id === id)) id += 1;
+    return id;
+  }
+
   removeMatch(matchId) {
-    const matches = this.getMatches();
-    const updatedMatches = matches.filter(match => match.id !== matchId);
-    this.saveMatches(updatedMatches);
+    this.commit(this.matches.filter((match) => match.id !== matchId));
   }
 
-  // Modifier le statut d'un match
-  updateMatchStatus(matchId, status) {
-    const matches = this.getMatches();
-    const updatedMatches = matches.map(match => {
-      if (match.id === matchId) {
-        const now = new Date().toISOString();
-        const updatedMatch = { ...match, status };
-        
-        // Gérer les timestamps pour le calcul du temps de pause
-        if (status === 'paused') {
-          updatedMatch.pausedAt = now;
-        } else if (status === 'active' && match.status === 'paused') {
-          // Calculer le temps total de pause
-          const pausedDuration = match.pausedAt ? 
-            (new Date(now) - new Date(match.pausedAt)) : 0;
-          
-          updatedMatch.totalPausedTime = (match.totalPausedTime || 0) + pausedDuration;
-          updatedMatch.pausedAt = null;
-        } else if (status === 'finished') {
-          updatedMatch.finishedAt = now;
-          // Si le match était en pause quand il s'est terminé
-          if (match.status === 'paused' && match.pausedAt) {
-            const pausedDuration = new Date(now) - new Date(match.pausedAt);
-            updatedMatch.totalPausedTime = (match.totalPausedTime || 0) + pausedDuration;
-          }
-        }
-        
-        return updatedMatch;
-      }
-      return match;
+  /** Applique une transformation à un match et ne commit que s'il a changé. */
+  mutate(matchId, transform) {
+    let changed = false;
+    const updated = this.matches.map((match) => {
+      if (match.id !== matchId) return match;
+      const next = transform(match);
+      if (next === match) return match;
+      changed = true;
+      return next;
     });
-    this.saveMatches(updatedMatches);
+    if (changed) this.commit(updated);
+  }
+
+  updateMatchStatus(matchId, status) {
+    if (!matchValidators.validateMatchStatus(status)) {
+      throw new MatchError(`Statut invalide: ${status}`, errorCodes.INVALID_STATUS);
+    }
+
+    this.mutate(matchId, (match) => {
+      const now = new Date().toISOString();
+      const updated = { ...match, status };
+      const pausedSince = (from) => (from ? new Date(now) - new Date(from) : 0);
+
+      if (status === 'paused') {
+        updated.pausedAt = now;
+      } else if (status === 'active' && match.status === 'paused') {
+        updated.totalPausedTime = (match.totalPausedTime || 0) + pausedSince(match.pausedAt);
+        updated.pausedAt = null;
+      } else if (status === 'active' && match.status === 'waiting') {
+        // Passer un match "en attente" à "en cours" doit démarrer son
+        // chronomètre, sinon le temps se compterait depuis sa création.
+        updated.actualStartTime = now;
+      } else if (status === 'finished') {
+        updated.finishedAt = now;
+        if (match.status === 'paused' && match.pausedAt) {
+          updated.totalPausedTime = (match.totalPausedTime || 0) + pausedSince(match.pausedAt);
+          updated.pausedAt = null;
+        }
+      }
+
+      return updated;
+    });
+  }
+
+  /**
+   * Clôture un match que CueScore ne diffuse plus.
+   *
+   * La rencontre est allée à son terme : `autoFinished` reste à false pour que
+   * la carte affiche « TERMINÉ » et non « TEMPS ÉCOULÉ ».
+   */
+  finishMatchFromCueScore(matchId) {
+    this.mutate(matchId, (match) =>
+      match.status === 'finished'
+        ? match
+        : {
+            ...match,
+            status: 'finished',
+            finishedAt: new Date().toISOString(),
+            autoFinished: false,
+            finishedBy: 'cuescore',
+          }
+    );
   }
 
   // Terminer automatiquement un match quand le temps est écoulé
   autoFinishMatch(matchId) {
-    const matches = this.getMatches();
-    const updatedMatches = matches.map(match => {
-      if (match.id === matchId && match.status !== 'finished') {
-        return { 
-          ...match, 
-          status: 'finished', 
-          finishedAt: new Date().toISOString(),
-          autoFinished: true 
-        };
-      }
-      return match;
-    });
-    this.saveMatches(updatedMatches);
-  }
-
-  // Modifier un match
-  updateMatch(matchId, updates) {
-    const matches = this.getMatches();
-    const updatedMatches = matches.map(match => 
-      match.id === matchId ? { ...match, ...updates } : match
+    this.mutate(matchId, (match) =>
+      match.status === 'finished'
+        ? match
+        : {
+            ...match,
+            status: 'finished',
+            finishedAt: new Date().toISOString(),
+            autoFinished: true,
+          }
     );
-    this.saveMatches(updatedMatches);
   }
 
-  // Démarrer le timer d'un match spécifique
+  updateMatch(matchId, updates) {
+    this.mutate(matchId, (match) => ({ ...match, ...updates }));
+  }
+
   startMatchTimer(matchId) {
-    const matches = this.getMatches();
-    const updatedMatches = matches.map(match => {
-      if (match.id === matchId && match.status === 'waiting') {
-        return { 
-          ...match, 
-          status: 'active',
-          actualStartTime: new Date().toISOString()
-        };
-      }
-      return match;
-    });
-    this.saveMatches(updatedMatches);
+    this.mutate(matchId, (match) =>
+      match.status === 'waiting'
+        ? { ...match, status: 'active', actualStartTime: new Date().toISOString() }
+        : match
+    );
   }
 
-  // Démarrer tous les timers des matchs en attente
   startAllTimers() {
-    const matches = this.getMatches();
+    if (!this.matches.some((match) => match.status === 'waiting')) return;
+
     const now = new Date().toISOString();
-    const updatedMatches = matches.map(match => {
-      if (match.status === 'waiting') {
-        return { 
-          ...match, 
-          status: 'active',
-          actualStartTime: now
-        };
-      }
-      return match;
-    });
-    this.saveMatches(updatedMatches);
+    this.commit(
+      this.matches.map((match) =>
+        match.status === 'waiting' ? { ...match, status: 'active', actualStartTime: now } : match
+      )
+    );
   }
 
-  // S'abonner aux changements
+  clearAllMatches() {
+    this.commit([]);
+  }
+
   subscribe(listener) {
     this.listeners.add(listener);
-    
-    // Retourner une fonction de désabonnement
-    return () => {
-      this.listeners.delete(listener);
-    };
+    return () => this.listeners.delete(listener);
   }
 
-  // Notifier tous les listeners
   notifyListeners() {
-    const matches = this.getMatches();
-    this.listeners.forEach(listener => listener(matches));
-  }
-
-  // Vider tous les matchs
-  clearAllMatches() {
-    this.saveMatches([]);
+    this.listeners.forEach((listener) => {
+      try {
+        listener(this.matches);
+      } catch (error) {
+        console.error('Erreur dans un listener du store:', error);
+      }
+    });
   }
 }
 

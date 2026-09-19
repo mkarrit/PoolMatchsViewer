@@ -1,10 +1,14 @@
 <!doctype html>
-<html lang="en">
+<html lang="fr">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/public/FFBillard_icone.jpeg" />
+    <!-- Les fichiers de public/ sont servis à la racine : le préfixe /public/
+         n'existe pas dans le build de production. -->
+    <link rel="icon" type="image/jpeg" href="/FFBillard_icone.jpeg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>PoolMatchsViewer</title>
+    <meta name="description" content="Affichage TV des matchs de billard en cours, synchronisé avec CueScore." />
+    <meta name="theme-color" content="#020617" />
+    <title>Pool Matchs Viewer</title>
   </head>
   <body>
     <div id="root"></div>

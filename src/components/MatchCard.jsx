@@ -1,16 +1,12 @@
 import React, { useMemo, memo } from "react";
 import { formatCountdownTime } from "../utils/formatTime";
-import { useMatches } from "../hooks/useMatches";
+import { matchActions } from "../hooks/useMatches";
 import { useMatchTimer } from "../hooks/useMatchTimer";
+import { appConfig } from "../utils/config";
 
-// Fonctions pures pour les calculs de taille de texte (optimisées)
-const getNameTextSize = (name) => {
-  const length = name?.length || 0;
-  if (length <= 12) return 'text-xs sm:text-sm xs:text-base';
-  if (length <= 18) return 'text-xs sm:text-sm xs:text-base';
-  if (length <= 25) return 'text-xs sm:text-sm xs:text-base';
-  return 'text-xs sm:text-sm xs:text-base';
-};
+// Taille de police du nom : tous les paliers desktop rendaient la même
+// valeur, seule la version mobile a réellement besoin de s'adapter.
+const DESKTOP_NAME_TEXT_SIZE = 'text-xs sm:text-sm xs:text-base';
 
 const getMobileNameTextSize = (name) => {
   const length = name?.length || 0;
@@ -21,27 +17,32 @@ const getMobileNameTextSize = (name) => {
 
 const getTableTextSize = (tableName) => {
   const length = tableName?.length || 0;
-  return length <= 10 ? 'text-xl xl:text-xl' : 'text-xs'
+  return length <= 10 ? 'text-xl xl:text-xl' : 'text-xs';
 };
 
 export default memo(function MatchCard({ match }) {
-  const { autoFinishMatch } = useMatches();
-  
-  // Utiliser le hook optimisé pour le timer
-  const remainingTime = useMatchTimer(match, autoFinishMatch);
+  // matchActions est une référence stable : la carte n'a pas besoin de
+  // s'abonner au store, ce qui évite de re-rendre toutes les cartes à chaque
+  // mise à jour de score d'une seule d'entre elles.
+  const remainingTime = useMatchTimer(match, matchActions.autoFinishMatch);
+  const isCritical =
+    remainingTime < appConfig.match.warningThreshold && match.status === 'active';
 
   // Utiliser les scores stockés dans le match (venant de l'API lors de l'ajout)
   const currentScoreA = match.scoreA ?? 0;
   const currentScoreB = match.scoreB ?? 0;
+  // Format de la rencontre : le `raceTo` varie d'un match à l'autre, un score
+  // seul ne dit pas combien de manches restent à jouer.
+  const raceTo = Number(match.raceTo) || null;
 
   // Mémoriser tous les calculs coûteux en une seule fois
   const computedStyles = useMemo(() => ({
-    player1TextSize: getNameTextSize(match.player1),
-    player2TextSize: getNameTextSize(match.player2),
     player1MobileTextSize: getMobileNameTextSize(match.player1),
     player2MobileTextSize: getMobileNameTextSize(match.player2),
-    tableTextSize: getTableTextSize(match.table)
-  }), [match.player1, match.player2, match.table]);
+    // La puce affiche tableName en priorité : c'est sa longueur qui doit
+    // piloter la taille du texte, pas l'identifiant numérique.
+    tableTextSize: getTableTextSize(match.tableName || `TABLE ${match.table}`)
+  }), [match.player1, match.player2, match.tableName, match.table]);
 
   // Mémoriser les calculs de statut
   const matchStatus = useMemo(() => {
@@ -54,7 +55,7 @@ export default memo(function MatchCard({ match }) {
         case 'finished':
           return match.autoFinished ? 'text-error' : 'text-success';
         default:
-          return remainingTime < 300 ? 'text-error' : 'text-accent';
+          return remainingTime < appConfig.match.warningThreshold ? 'text-error' : 'text-accent';
       }
     };
 
@@ -148,12 +149,18 @@ export default memo(function MatchCard({ match }) {
               {currentScoreB}
             </div>
           </div>
+
+          {raceTo && (
+            <div className="text-center text-[11px] font-semibold tracking-wide text-text-muted uppercase">
+              Course en {raceTo}
+            </div>
+          )}
         </div>
 
         {/* Version desktop - horizontale */}
         <div className="hidden sm:flex items-center justify-between">
           <div className="flex-1 text-center space-y-2 min-w-0 px-1">
-            <div className={`${computedStyles.player1TextSize} font-black text-text-primary px-2 leading-tight`}>
+            <div className={`${DESKTOP_NAME_TEXT_SIZE} font-black text-text-primary px-2 leading-tight`}>
               {match.player1}
             </div>
             <div className="text-2xl xl:text-3xl font-bold text-accent">
@@ -169,7 +176,7 @@ export default memo(function MatchCard({ match }) {
           </div>
           
           <div className="flex-1 text-center space-y-2 min-w-0 px-1">
-            <div className={`${computedStyles.player2TextSize} font-black text-text-primary px-2 leading-tight`}>
+            <div className={`${DESKTOP_NAME_TEXT_SIZE} font-black text-text-primary px-2 leading-tight`}>
               {match.player2}
             </div>
             <div className="text-2xl xl:text-3xl font-bold text-accent">
@@ -177,6 +184,12 @@ export default memo(function MatchCard({ match }) {
             </div>
           </div>
         </div>
+
+        {raceTo && (
+          <div className="hidden sm:block text-center text-xs font-semibold tracking-wide text-text-muted uppercase mt-2">
+            Course en {raceTo}
+          </div>
+        )}
       </div>
 
       {/* Timer - RESPONSIVE */}
@@ -188,7 +201,7 @@ export default memo(function MatchCard({ match }) {
           / {match.maxDurationMinutes} min
         </div>
         
-        {remainingTime < 300 && remainingTime > 0 && match.status === 'active' && (
+        {isCritical && remainingTime > 0 && (
           <div className="mt-2 flex items-center justify-center gap-1 sm:gap-2 text-error">
             <div className="w-1.5 sm:w-2 h-1.5 sm:h-2 bg-error rounded-full animate-pulse"></div>
             <span className="text-xs sm:text-sm font-bold tracking-wide">TEMPS CRITIQUE</span>

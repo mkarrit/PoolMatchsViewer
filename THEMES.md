@@ -6,14 +6,14 @@ Pour que le système de thèmes fonctionne correctement, vous devez placer les i
 
 ### 1. Logo FFBillard (FFB)
 - **Nom du fichier :** `FFBillard_logo.png`
-- **Chemin :** `/public/FFBillard_logo.png`
+- **Chemin dans le code :** `/FFBillard_logo.png` (les fichiers de `public/` sont servis à la racine)
 - **Description :** Logo de la Fédération Française de Billard
 - **Format recommandé :** PNG avec fond transparent
 - **Taille recommandée :** 200x200px minimum
 
 ### 2. Logo Ultimate Pool FR
 - **Nom du fichier :** `ultimate_pool_fr.png`
-- **Chemin :** `/public/ultimate_pool_fr.png`
+- **Chemin dans le code :** `/ultimate_pool_fr.png` (les fichiers de `public/` sont servis à la racine)
 - **Description :** Logo d'Ultimate Pool France
 - **Format recommandé :** PNG avec fond transparent
 - **Taille recommandée :** 200x200px minimum

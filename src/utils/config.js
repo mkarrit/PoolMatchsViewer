@@ -1,134 +1,98 @@
 /**
- * Configuration de l'application
+ * Configuration de l'application et accès à la configuration des tables.
+ *
+ * Ce module est la source de vérité unique pour la liste des tables : tout
+ * lecteur doit appeler getTables() au moment où il en a besoin. Un export
+ * "figé" au chargement du module renverrait une liste périmée dès la première
+ * modification faite dans l'écran de configuration.
  */
 
-// Configuration par défaut des tables (fallback)
-const defaultTables = [
-];
+export const TABLES_STORAGE_KEY = 'clubTables';
+export const TABLES_UPDATED_EVENT = 'tablesUpdated';
 
-// Fonction pour récupérer les tables (depuis localStorage ou par défaut)
+/** Lit la configuration des tables depuis localStorage. */
 export function getTables() {
   try {
-    const savedTables = localStorage.getItem('clubTables');
-    if (savedTables) {
-      const parsed = JSON.parse(savedTables);
-      // Validation basique des données
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed;
-      }
-    }
+    const saved = localStorage.getItem(TABLES_STORAGE_KEY);
+    if (!saved) return [];
+
+    const parsed = JSON.parse(saved);
+    if (!Array.isArray(parsed)) return [];
+
+    // On ne garde que les entrées exploitables : une table sans code CueScore
+    // ne sert à rien et ferait échouer la récupération du match.
+    return parsed.filter(
+      (table) =>
+        table &&
+        Number.isInteger(table.id) &&
+        typeof table.name === 'string' &&
+        table.name.trim() !== '' &&
+        typeof table.code === 'string' &&
+        table.code.trim() !== ''
+    );
   } catch (error) {
     console.warn('Erreur lors du chargement des tables:', error);
+    return [];
   }
-  return defaultTables;
 }
 
-// Export des tables (pour compatibilité avec le code existant)
-export const tables = getTables();
+/** Retrouve une table par son id (accepte un id numérique ou sa forme texte). */
+export function findTableById(tableId) {
+  const id = Number.parseInt(tableId, 10);
+  if (Number.isNaN(id)) return null;
+  return getTables().find((table) => table.id === id) || null;
+}
 
 export const appConfig = {
   // Paramètres des matchs
   match: {
-    minDuration: 5,      // minutes
-    maxDuration: 300,    // minutes (5h)
+    minDuration: 5, // minutes
+    maxDuration: 300, // minutes (5h)
     defaultDuration: 30, // minutes
     warningThreshold: 300, // secondes (5min)
-    criticalThreshold: 60  // secondes (1min)
+    criticalThreshold: 60, // secondes (1min)
   },
 
   // Paramètres UI
   ui: {
-    refreshInterval: 1000,    // ms
-    toastDuration: 5000,     // ms
-    animationDuration: 300,   // ms
-    autoRefreshTv: true,     // Auto-refresh en mode TV
-    tvRefreshInterval: 30000  // ms (30s)
+    timerTickInterval: 1000, // ms — rafraîchissement du compte à rebours
+    toastDuration: 5000, // ms
   },
 
   // Paramètres de stockage
   storage: {
-    key: 'poolMatches',
-    enableCrossTabSync: true,
-    enableBackup: true,
-    maxBackupCount: 5
-  },
-
-  // Paramètres d'export
-  export: {
-    includeFinishedMatches: true,
-    dateFormat: 'YYYY-MM-DD',
-    timeFormat: 'HH:mm:ss'
+    matchesKey: 'poolMatches',
+    maxPayloadBytes: 5_000_000, // garde-fou avant écriture localStorage
   },
 
   // Validation
   validation: {
     playerNameMinLength: 2,
     playerNameMaxLength: 50,
-    tableNamePattern: /^[0-9A-Za-z]+$/,
-    preventDuplicatePlayers: true
   },
 
   // API CueScore
   api: {
     cueScore: {
-      baseUrl: 'https://cuescore.com/ajax/scoreboard-v2/',
-      timeout: 10000,
-      retryAttempts: 3,
-      retryDelay: 1000
-    }
+      // Passe par notre propre proxy : CueScore ne renvoie pas de header CORS.
+      // En prod → fonction serverless Vercel (api/cuescore.js).
+      // En dev  → proxy Vite (voir vite.config.js).
+      proxyPath: '/api/cuescore',
+      // URL amont, utilisée uniquement côté serveur.
+      upstreamUrl: 'https://cuescore.com/ajax/scoreboard-v2/',
+      timeout: 15000, // ms
+      // Fréquence de relecture des scores. Un point marqué doit apparaître à
+      // l'écran en quelques secondes : c'est ce délai qui fixe la latence
+      // perçue, pas le rendu.
+      pollInterval: 5000, // ms
+      // Les tables sont interrogées en parallèle, par petits groupes, pour que
+      // le nombre de tables n'allonge pas le temps de cycle.
+      maxConcurrentRequests: 4,
+      // Quand un match se termine, CueScore repasse la table en NOMATCH. On
+      // exige plusieurs lectures concordantes avant de clore le match : une
+      // coupure réseau ou un aléa serveur ne doit pas terminer une rencontre
+      // encore en cours.
+      missingMatchConfirmations: 3,
+    },
   },
-
-  // Fonctionnalités
-  features: {
-    enableStats: true,
-    enableExport: true,
-    enableNotifications: true,
-    enableAutoFinish: true,
-    enablePauseTracking: true
-  }
 };
-
-/**
- * Hook pour accéder à la configuration
- */
-import { useState, useEffect } from 'react';
-
-export function useAppConfig() {
-  const [config, setConfig] = useState(appConfig);
-
-  // Charger la configuration personnalisée depuis localStorage
-  useEffect(() => {
-    try {
-      const savedConfig = localStorage.getItem('appConfig');
-      if (savedConfig) {
-        const parsed = JSON.parse(savedConfig);
-        setConfig(prev => ({ ...prev, ...parsed }));
-      }
-    } catch (error) {
-      console.warn('Erreur lors du chargement de la configuration:', error);
-    }
-  }, []);
-
-  const updateConfig = (newConfig) => {
-    try {
-      const updatedConfig = { ...config, ...newConfig };
-      setConfig(updatedConfig);
-      localStorage.setItem('appConfig', JSON.stringify(updatedConfig));
-      return true;
-    } catch (error) {
-      console.error('Erreur lors de la sauvegarde de la configuration:', error);
-      return false;
-    }
-  };
-
-  const resetConfig = () => {
-    setConfig(appConfig);
-    localStorage.removeItem('appConfig');
-  };
-
-  return {
-    config,
-    updateConfig,
-    resetConfig
-  };
-}

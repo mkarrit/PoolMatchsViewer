@@ -1,122 +1,99 @@
-import { useState } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
+import { appConfig } from '../utils/config';
 
 /**
- * Hook pour récupérer les données depuis l'API CueScore
+ * Codes d'erreur métier renvoyés par CueScore.
+ * Ce ne sont pas des pannes : ils décrivent l'état de la table.
+ */
+export const CUESCORE_ERRORS = {
+  NOMATCH: 'Aucun match lancé sur cette table',
+  NOTABLE: 'Table inconnue côté CueScore (vérifiez le code)',
+  NOCODE: 'Code de table invalide',
+};
+
+/**
+ * Hook pour récupérer les données depuis l'API CueScore.
+ *
+ * L'appel passe par /api/cuescore (fonction serverless en prod, proxy Vite en
+ * dev) car CueScore ne renvoie aucun header CORS.
  */
 export function useCueScore() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const isMountedRef = useRef(true);
 
-  const fetchMatchData = async (tableCode) => {
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  const fetchMatchData = useCallback(async (tableCode) => {
     if (!tableCode) {
-      throw new Error('Code de table requis');
+      return { success: false, error: 'NOCODE', message: CUESCORE_ERRORS.NOCODE };
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), appConfig.api.cueScore.timeout);
+
+    if (isMountedRef.current) {
+      setLoading(true);
+      setError(null);
     }
 
     try {
-      setLoading(true);
-      setError(null);
+      const response = await fetch(
+        `${appConfig.api.cueScore.proxyPath}?tableCode=${encodeURIComponent(tableCode)}`,
+        { signal: controller.signal, headers: { Accept: 'application/json' } }
+      );
 
-      // Solution simple : utiliser un proxy CORS gratuit
-      const proxyUrl = `https://api.codetabs.com/v1/proxy?quest=https://cuescore.com/ajax/scoreboard-v2/?tableCode=${tableCode}`;
-      
-      console.log(`Appel API via proxy: ${proxyUrl}`);
+      const data = await response.json().catch(() => null);
 
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 15000); // Augmenter le timeout
-
-      const response = await fetch(proxyUrl, {
-        method: 'GET',
-        signal: controller.signal,
-        headers: {
-          'Accept': 'application/json',
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        }
-      });
-
-      clearTimeout(timeoutId);
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      // Erreurs métier CueScore : on les remonte telles quelles, sans lever
+      // d'exception — l'appelant décide quoi en faire. En cas de succès le
+      // champ vaut la chaîne vide, pas `undefined`.
+      if (data?.error && CUESCORE_ERRORS[data.error]) {
+        return {
+          success: false,
+          error: data.error,
+          message: CUESCORE_ERRORS[data.error],
+          // Sur une table libre, CueScore annonce déjà la rencontre suivante :
+          // de quoi préparer l'affichage avant le lancement du match.
+          nextMatch: data.nextMatch ?? null,
+        };
       }
 
-      const data = await response.json();
-      
-      // Vérifier si l'API retourne une erreur NOMATCH (match pas encore lancé)
-      if (data && data.error === "NOMATCH") {
-        console.log('⏸️ Match pas encore lancé pour cette table');
+      if (!response.ok) {
+        throw new Error(`Service CueScore indisponible (HTTP ${response.status})`);
+      }
+
+      // Hors match, CueScore renvoie `"match": []` — un tableau vide, donc
+      // truthy : un simple test de présence laisserait passer un non-match.
+      const match = data?.match;
+      if (!match || Array.isArray(match) || !match.playerA || !match.playerB) {
         return {
           success: false,
           error: 'NOMATCH',
-          message: 'Match pas encore lancé'
+          message: CUESCORE_ERRORS.NOMATCH,
+          nextMatch: data?.nextMatch ?? null,
         };
       }
-      
-      // Vérifier si les données sont valides et contiennent un match
-      if (!data || !data.match) {
-        throw new Error('Aucune donnée de match trouvée pour cette table');
-      }
 
-      console.log('✅ Données récupérées avec succès:', data.match);
-
-      return {
-        success: true,
-        data: data.match
-      };
-
+      return { success: true, data: match };
     } catch (err) {
-      console.error('Erreur lors de l\'appel API:', err);
-      
-      // Essayer une alternative en cas d'échec
-      if (err.name !== 'AbortError') {
-        try {
-          console.log('Tentative avec un autre proxy...');
-          
-          const alternativeUrl = `https://cors-anywhere.herokuapp.com/https://cuescore.com/ajax/scoreboard-v2/?tableCode=${tableCode}`;
-          
-          const altResponse = await fetch(alternativeUrl, {
-            method: 'GET',
-            headers: {
-              'Accept': 'application/json',
-              'X-Requested-With': 'XMLHttpRequest'
-            }
-          });
+      const message =
+        err.name === 'AbortError'
+          ? 'Délai dépassé lors de l\'appel à CueScore'
+          : err.message;
 
-          if (altResponse.ok) {
-            const altData = await altResponse.json();
-            
-            // Vérifier NOMATCH avec proxy alternatif
-            if (altData && altData.error === "NOMATCH") {
-              console.log('⏸️ Match pas encore lancé (proxy alternatif)');
-              return {
-                success: false,
-                error: 'NOMATCH',
-                message: 'Match pas encore lancé'
-              };
-            }
-            
-            if (altData && altData.match) {
-              console.log('✅ Données récupérées avec proxy alternatif');
-              return {
-                success: true,
-                data: altData.match
-              };
-            }
-          }
-        } catch (altErr) {
-          console.warn('Proxy alternatif échoué:', altErr.message);
-        }
-      }
-
-      setError(err.message);
-      throw err;
+      if (isMountedRef.current) setError(message);
+      return { success: false, error: 'NETWORK_ERROR', message };
     } finally {
-      setLoading(false);
+      clearTimeout(timeoutId);
+      if (isMountedRef.current) setLoading(false);
     }
-  };
+  }, []);
 
-  return {
-    fetchMatchData,
-    loading,
-    error
-  };
+  return { fetchMatchData, loading, error };
 }
