@@ -1,15 +1,43 @@
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+
+const THEME_STORAGE_KEY = 'selectedTheme';
+const THEME_UPDATED_EVENT = 'themeUpdated';
+
+/**
+ * Construit les variables CSS à partir de la palette, pour éviter que les deux
+ * représentations d'un même thème ne divergent.
+ */
+function toCssVariables(colors) {
+  return {
+    '--color-primary': colors.primary,
+    '--color-secondary': colors.secondary,
+    '--color-accent': colors.accent,
+    '--color-surface': colors.surface,
+    '--color-glass-light': colors.glass.light,
+    '--color-glass-medium': colors.glass.medium,
+    '--color-text-primary': colors.text.primary,
+    '--color-text-muted': colors.text.muted,
+    '--color-text-faint': colors.text.faint,
+    '--color-success': colors.success,
+    '--color-warning': colors.warning,
+    '--color-error': colors.error,
+  };
+}
+
+function defineTheme({ id, name, logo, colors }) {
+  return { id, name, logo, colors, cssVariables: toCssVariables(colors) };
+}
 
 /**
  * Thèmes disponibles
  */
 export const THEMES = {
-  FFB: {
+  FFB: defineTheme({
     id: 'ffb',
     name: 'FFBillard (FFB)',
     logo: '/FFBillard_logo.png',
     colors: {
-      primary: '#0f172a',      // Couleurs FFB originales
+      primary: '#0f172a',
       secondary: '#1e293b',
       accent: '#06b6d4',
       surface: '#020617',
@@ -20,188 +48,124 @@ export const THEMES = {
       text: {
         primary: '#f8fafc',
         muted: '#64748b',
-        faint: '#475569'
+        faint: '#475569',
       },
       success: '#059669',
       warning: '#d97706',
-      error: '#dc2626'
+      error: '#dc2626',
     },
-    cssVariables: {
-      '--color-primary': '#0f172a',
-      '--color-secondary': '#1e293b',
-      '--color-accent': '#06b6d4',
-      '--color-surface': '#020617',
-      '--color-glass-light': 'rgba(255, 255, 255, 0.08)',
-      '--color-glass-medium': 'rgba(255, 255, 255, 0.12)',
-      '--color-text-primary': '#f8fafc',
-      '--color-text-muted': '#64748b',
-      '--color-text-faint': '#475569',
-      '--color-success': '#059669',
-      '--color-warning': '#d97706',
-      '--color-error': '#dc2626'
-    }
-  },
-  ULTIMATE_POOL: {
+  }),
+  ULTIMATE_POOL: defineTheme({
     id: 'ultimate_pool',
     name: 'Ultimate Pool FR',
     logo: '/ultimate_pool_fr.png',
     colors: {
-      primary: '#0f1419',      // Bleu-noir profond (comme leur site)
-      secondary: '#1e2328',    // Bleu-gris foncé
-      accent: '#adcbd498',       // Cyan/bleu électrique (couleur signature Ultimate Pool)
-      surface: '#080b0f',      // Noir-bleu très profond
+      primary: '#0f1419',
+      secondary: '#1e2328',
+      accent: '#adcbd498',
+      surface: '#080b0f',
       glass: {
-        light: 'rgba(0, 212, 255, 0.06)',    // Glass avec teinte cyan subtile
-        medium: 'rgba(0, 212, 255, 0.1)',    // Glass cyan plus visible
+        light: 'rgba(0, 212, 255, 0.06)',
+        medium: 'rgba(0, 212, 255, 0.1)',
       },
       text: {
-        primary: '#ffffff',     // Blanc pur pour contraste maximal
-        muted: '#94a3b8',       // Gris-bleu clair
-        faint: '#64748b'        // Gris-bleu moyen
+        primary: '#ffffff',
+        muted: '#94a3b8',
+        faint: '#64748b',
       },
-      success: '#10b981',      // Vert moderne
-      warning: '#f59e0b',      // Orange moderne
-      error: '#ef4444'        // Rouge moderne
+      success: '#10b981',
+      warning: '#f59e0b',
+      error: '#ef4444',
     },
-    cssVariables: {
-      '--color-primary': '#0f1419',
-      '--color-secondary': '#1e2328',
-      '--color-accent': '#adcbd498',
-      '--color-surface': '#080b0f',
-      '--color-glass-light': 'rgba(0, 212, 255, 0.06)',
-      '--color-glass-medium': 'rgba(0, 212, 255, 0.1)',
-      '--color-text-primary': '#ffffff',
-      '--color-text-muted': '#94a3b8',
-      '--color-text-faint': '#64748b',
-      '--color-success': '#10b981',
-      '--color-warning': '#f59e0b',
-      '--color-error': '#ef4444'
-    }
-  }
+  }),
 };
 
+export const DEFAULT_THEME = THEMES.FFB;
+
+const themeList = Object.values(THEMES);
+const findThemeById = (themeId) => themeList.find((theme) => theme.id === themeId) || null;
+
+function applyThemeToDOM(theme) {
+  const root = document.documentElement;
+
+  Object.entries(theme.cssVariables).forEach(([property, value]) => {
+    root.style.setProperty(property, value);
+  });
+
+  themeList.forEach((t) => root.classList.remove(`theme-${t.id}`));
+  root.classList.add(`theme-${theme.id}`);
+}
+
+function readStoredTheme() {
+  try {
+    return findThemeById(localStorage.getItem(THEME_STORAGE_KEY)) || DEFAULT_THEME;
+  } catch {
+    return DEFAULT_THEME;
+  }
+}
+
 /**
- * Hook pour gérer les thèmes
+ * Hook pour gérer les thèmes.
+ *
+ * Toutes les instances se resynchronisent sur `themeUpdated` : le logo affiché
+ * sur l'écran TV suit donc un changement fait depuis l'administration.
  */
 export function useTheme() {
-  const [currentTheme, setCurrentTheme] = useState(THEMES.FFB);
-  const [loading, setLoading] = useState(false);
+  const [currentTheme, setCurrentTheme] = useState(readStoredTheme);
   const [error, setError] = useState(null);
 
-  // Charger le thème au montage
   useEffect(() => {
-    const loadInitialTheme = () => {
-      try {
-        setError(null);
-        const savedThemeId = localStorage.getItem('selectedTheme');
-        
-        // Trouver le thème correspondant
-        const theme = Object.values(THEMES).find(t => t.id === savedThemeId) || THEMES.FFB;
-        
-        setCurrentTheme(theme);
-        applyThemeToDOM(theme);
-      } catch (err) {
-        setError('Erreur lors du chargement du thème');
-        console.error('Erreur loadTheme:', err);
-      }
+    applyThemeToDOM(currentTheme);
+  }, [currentTheme]);
+
+  useEffect(() => {
+    // event.detail porte l'identifiant du thème ('ffb'), pas la clé de l'objet
+    // THEMES ('FFB') : la résolution doit passer par findThemeById.
+    const handleThemeUpdate = (event) => {
+      const theme = findThemeById(event.detail);
+      if (theme) setCurrentTheme(theme);
     };
 
-    loadInitialTheme();
-    
-    // Écouter les changements de thème
-    const handleThemeUpdate = (event) => {
-      const theme = THEMES[event.detail];
-      if (theme) {
-        setCurrentTheme(theme);
-        applyThemeToDOM(theme);
-      }
+    const handleStorage = (event) => {
+      if (event.key === THEME_STORAGE_KEY) setCurrentTheme(readStoredTheme());
     };
-    
-    window.addEventListener('themeUpdated', handleThemeUpdate);
-    return () => window.removeEventListener('themeUpdated', handleThemeUpdate);
+
+    window.addEventListener(THEME_UPDATED_EVENT, handleThemeUpdate);
+    window.addEventListener('storage', handleStorage);
+    return () => {
+      window.removeEventListener(THEME_UPDATED_EVENT, handleThemeUpdate);
+      window.removeEventListener('storage', handleStorage);
+    };
   }, []);
 
-  const loadTheme = () => {
-    try {
-      setError(null);
-      const savedThemeId = localStorage.getItem('selectedTheme');
-      
-      // Trouver le thème correspondant
-      const theme = Object.values(THEMES).find(t => t.id === savedThemeId) || THEMES.FFB;
-      
-      setCurrentTheme(theme);
-      applyThemeToDOM(theme);
-    } catch (err) {
-      setError('Erreur lors du chargement du thème');
-      console.error('Erreur loadTheme:', err);
+  const changeTheme = useCallback((themeId) => {
+    const theme = findThemeById(themeId);
+    if (!theme) {
+      const message = 'Thème non trouvé';
+      setError(message);
+      return { success: false, error: message };
     }
-  };
 
-  const changeTheme = (themeId) => {
+    setError(null);
     try {
-      setError(null);
-      setLoading(true);
-      
-      const theme = Object.values(THEMES).find(t => t.id === themeId);
-      if (!theme) {
-        throw new Error('Thème non trouvé');
-      }
-      
-      // Sauvegarder le choix
-      localStorage.setItem('selectedTheme', themeId);
-      
-      // Appliquer le thème
-      setCurrentTheme(theme);
-      applyThemeToDOM(theme);
-      
-      // Notifier les autres composants
-      window.dispatchEvent(new CustomEvent('themeUpdated', { detail: themeId }));
-      
-      return { success: true };
-    } catch (err) {
-      const errorMessage = err.message || 'Erreur lors du changement de thème';
-      setError(errorMessage);
-      return { success: false, error: errorMessage };
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const applyThemeToDOM = (theme) => {
-    const root = document.documentElement;
-    
-    // Appliquer les variables CSS
-    Object.entries(theme.cssVariables).forEach(([property, value]) => {
-      root.style.setProperty(property, value);
-    });
-    
-    // Ajouter une classe pour le thème
-    root.className = root.className.replace(/theme-\w+/g, '');
-    root.classList.add(`theme-${theme.id}`);
-  };
-
-  const resetTheme = () => {
-    try {
-      setError(null);
-      localStorage.removeItem('selectedTheme');
-      const defaultTheme = THEMES.FFB;
-      setCurrentTheme(defaultTheme);
-      applyThemeToDOM(defaultTheme);
-      return { success: true };
+      localStorage.setItem(THEME_STORAGE_KEY, themeId);
     } catch {
-      const errorMessage = 'Erreur lors de la réinitialisation';
-      setError(errorMessage);
-      return { success: false, error: errorMessage };
+      // Le thème s'applique quand même, il ne sera juste pas mémorisé.
+      setError('Thème appliqué mais non mémorisé (stockage indisponible)');
     }
-  };
+
+    setCurrentTheme(theme);
+    window.dispatchEvent(new CustomEvent(THEME_UPDATED_EVENT, { detail: themeId }));
+    return { success: true };
+  }, []);
+
+  const resetTheme = useCallback(() => changeTheme(DEFAULT_THEME.id), [changeTheme]);
 
   return {
     currentTheme,
-    availableThemes: Object.values(THEMES),
-    loading,
+    availableThemes: themeList,
     error,
     changeTheme,
     resetTheme,
-    reloadTheme: loadTheme
   };
 }

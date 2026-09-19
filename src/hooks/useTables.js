@@ -1,85 +1,83 @@
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { getTables, TABLES_STORAGE_KEY, TABLES_UPDATED_EVENT } from '../utils/config';
 
 /**
- * Hook pour gérer la configuration des tables du club
+ * Hook pour gérer la configuration des tables du club.
+ *
+ * Toutes les instances du hook se resynchronisent sur l'événement
+ * `tablesUpdated` (même onglet) et sur `storage` (autres onglets) : la liste
+ * affichée ne peut pas diverger d'un composant à l'autre.
  */
 export function useTables() {
-  const [tables, setTables] = useState([]);
+  const [tables, setTables] = useState(getTables);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  // Charger les tables au montage
-  useEffect(() => {
-    loadTables();
+  const reloadTables = useCallback(() => {
+    setError(null);
+    setTables(getTables());
   }, []);
 
-  const loadTables = () => {
+  useEffect(() => {
+    const handleStorage = (event) => {
+      if (event.key === TABLES_STORAGE_KEY) reloadTables();
+    };
+
+    window.addEventListener(TABLES_UPDATED_EVENT, reloadTables);
+    window.addEventListener('storage', handleStorage);
+    return () => {
+      window.removeEventListener(TABLES_UPDATED_EVENT, reloadTables);
+      window.removeEventListener('storage', handleStorage);
+    };
+  }, [reloadTables]);
+
+  const saveTables = useCallback((newTables) => {
+    setLoading(true);
     try {
       setError(null);
-      const savedTables = localStorage.getItem('clubTables');
-      if (savedTables) {
-        const parsed = JSON.parse(savedTables);
-        if (Array.isArray(parsed)) {
-          setTables(parsed);
-          return;
-        }
-      }
-      
-      // Charger les tables par défaut
-      const defaultTables = [
 
-      ];
-      setTables(defaultTables);
-    } catch (err) {
-      setError('Erreur lors du chargement des tables');
-      console.error('Erreur loadTables:', err);
-    }
-  };
-
-  const saveTables = (newTables) => {
-    try {
-      setError(null);
-      setLoading(true);
-      
-      // Validation des données
       if (!Array.isArray(newTables)) {
         throw new Error('Les tables doivent être un tableau');
       }
 
-      // Validation de chaque table
       for (const table of newTables) {
-        if (!table.id || !table.name || !table.code) {
-          throw new Error('Chaque table doit avoir un id, nom et code');
+        if (!Number.isInteger(table?.id) || table.id <= 0) {
+          throw new Error("L'ID doit être un nombre entier positif");
         }
-        if (typeof table.id !== 'number' || table.id <= 0) {
-          throw new Error('L\'ID doit être un nombre positif');
-        }
-        if (typeof table.name !== 'string' || table.name.trim().length === 0) {
+        if (typeof table.name !== 'string' || table.name.trim() === '') {
           throw new Error('Le nom ne peut pas être vide');
         }
-        if (typeof table.code !== 'string' || table.code.trim().length === 0) {
-          throw new Error('Le code ne peut pas être vide');
+        if (typeof table.code !== 'string' || table.code.trim() === '') {
+          throw new Error('Le code CueScore ne peut pas être vide');
+        }
+        // CueScore n'accepte que des codes alphanumériques : les rejeter ici
+        // évite d'attendre un appel API pour découvrir la faute de frappe.
+        if (!/^[A-Za-z0-9]+$/.test(table.code.trim())) {
+          throw new Error(`Code CueScore invalide : "${table.code}" (lettres et chiffres uniquement)`);
         }
       }
 
-      // Vérifier les doublons d'ID
-      const ids = newTables.map(t => t.id);
+      const ids = newTables.map((t) => t.id);
       if (new Set(ids).size !== ids.length) {
         throw new Error('Les IDs des tables doivent être uniques');
       }
 
-      // Vérifier les doublons de code
-      const codes = newTables.map(t => t.code);
+      const names = newTables.map((t) => t.name.trim().toLowerCase());
+      if (new Set(names).size !== names.length) {
+        throw new Error('Les noms des tables doivent être uniques');
+      }
+
+      const codes = newTables.map((t) => t.code.trim().toLowerCase());
       if (new Set(codes).size !== codes.length) {
         throw new Error('Les codes des tables doivent être uniques');
       }
 
-      localStorage.setItem('clubTables', JSON.stringify(newTables));
+      localStorage.setItem(TABLES_STORAGE_KEY, JSON.stringify(newTables));
       setTables(newTables);
-      
-      // Déclencher un événement pour recharger les autres composants
-      window.dispatchEvent(new CustomEvent('tablesUpdated'));
-      
+
+      // Prévient les autres consommateurs du hook dans le même onglet.
+      window.dispatchEvent(new CustomEvent(TABLES_UPDATED_EVENT));
+
       return { success: true };
     } catch (err) {
       setError(err.message);
@@ -87,33 +85,42 @@ export function useTables() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const addTable = (name, code) => {
-    const newId = tables.length > 0 ? Math.max(...tables.map(t => t.id)) + 1 : 1;
-    const newTable = { id: newId, name: name.trim(), code: code.trim() };
-    return saveTables([...tables, newTable]);
-  };
+  const addTable = useCallback(
+    (name, code) => {
+      const nextId = tables.length > 0 ? Math.max(...tables.map((t) => t.id)) + 1 : 1;
+      return saveTables([...tables, { id: nextId, name: name.trim(), code: code.trim() }]);
+    },
+    [tables, saveTables]
+  );
 
-  const updateTable = (id, name, code) => {
-    const updatedTables = tables.map(table => 
-      table.id === id 
-        ? { ...table, name: name.trim(), code: code.trim() }
-        : table
-    );
-    return saveTables(updatedTables);
-  };
+  const updateTable = useCallback(
+    (id, name, code) =>
+      saveTables(
+        tables.map((table) =>
+          table.id === id ? { ...table, name: name.trim(), code: code.trim() } : table
+        )
+      ),
+    [tables, saveTables]
+  );
 
-  const removeTable = (id) => {
-    const updatedTables = tables.filter(table => table.id !== id);
-    return saveTables(updatedTables);
-  };
+  const removeTable = useCallback(
+    (id) => saveTables(tables.filter((table) => table.id !== id)),
+    [tables, saveTables]
+  );
 
-  const resetToDefault = () => {
-    localStorage.removeItem('clubTables');
-    loadTables();
-    return { success: true };
-  };
+  const clearTables = useCallback(() => {
+    try {
+      localStorage.removeItem(TABLES_STORAGE_KEY);
+      setTables([]);
+      window.dispatchEvent(new CustomEvent(TABLES_UPDATED_EVENT));
+      return { success: true };
+    } catch (err) {
+      setError(err.message);
+      return { success: false, error: err.message };
+    }
+  }, []);
 
   return {
     tables,
@@ -123,7 +130,7 @@ export function useTables() {
     updateTable,
     removeTable,
     saveTables,
-    resetToDefault,
-    reloadTables: loadTables
+    clearTables,
+    reloadTables,
   };
 }

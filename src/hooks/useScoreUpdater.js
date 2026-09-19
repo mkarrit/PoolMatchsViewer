@@ -1,112 +1,149 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useCueScore } from './useCueScore';
+import { appConfig } from '../utils/config';
+
+const { pollInterval, maxConcurrentRequests, missingMatchConfirmations } = appConfig.api.cueScore;
+
+/** Exécute les tâches par groupes, pour ne pas ouvrir N requêtes d'un coup. */
+async function runBatched(items, task, batchSize) {
+  for (let i = 0; i < items.length; i += batchSize) {
+    await Promise.all(items.slice(i, i + batchSize).map(task));
+  }
+}
 
 /**
- * Hook pour mettre à jour automatiquement les scores des matchs actifs
+ * Met à jour automatiquement les scores des matchs actifs depuis CueScore et
+ * clôt ceux que CueScore ne diffuse plus.
+ *
+ * Les tables sont interrogées en parallèle et le cycle est court : un point
+ * marqué sur CueScore apparaît à l'écran en quelques secondes.
+ *
+ * La liste des matchs est lue dans une ref plutôt que prise en dépendance :
+ * sinon chaque mise à jour de score relancerait l'effet, qui reprogrammerait
+ * un intervalle supplémentaire — les appels réseau doublaient à chaque cycle.
  */
-export function useScoreUpdater(matches, updateMatchScores) {
+export function useScoreUpdater(matches, updateMatchScores, finishMatch) {
   const { fetchMatchData } = useCueScore();
-  const intervalRef = useRef(null);
+
+  const matchesRef = useRef(matches);
+  const updateScoresRef = useRef(updateMatchScores);
+  const finishMatchRef = useRef(finishMatch);
   const isUpdatingRef = useRef(false);
+  const isMountedRef = useRef(true);
+  // Nombre de lectures NOMATCH consécutives, par identifiant de match.
+  const missingCountRef = useRef(new Map());
 
-  // Fonction pour mettre à jour les scores (mémorisée avec useCallback)
+  matchesRef.current = matches;
+  updateScoresRef.current = updateMatchScores;
+  finishMatchRef.current = finishMatch;
+
+  const hasActiveMatches = matches.some((match) => match.status === 'active' && match.tableCode);
+
   const updateScores = useCallback(async () => {
-    // Éviter les appels simultanés
+    // Un cycle précédent est encore en cours : on ne l'empile pas.
     if (isUpdatingRef.current) return;
-    
+    isUpdatingRef.current = true;
+
     try {
-      isUpdatingRef.current = true;
-      
-      // Filtrer les matchs actifs qui ont un code de table
-      const activeMatches = matches.filter(match => 
-        match.status === 'active' && 
-        match.tableCode
+      const activeMatches = matchesRef.current.filter(
+        (match) => match.status === 'active' && match.tableCode
       );
+      if (activeMatches.length === 0) return;
 
-      if (activeMatches.length === 0) {
-        return;
-      }
+      // Purge des compteurs des matchs qui ne sont plus suivis.
+      const activeIds = new Set(activeMatches.map((match) => match.id));
+      missingCountRef.current.forEach((_, id) => {
+        if (!activeIds.has(id)) missingCountRef.current.delete(id);
+      });
 
-      // Mettre à jour les scores de tous les matchs actifs
-      for (const match of activeMatches) {
-        try {
+      await runBatched(
+        activeMatches,
+        async (match) => {
           const result = await fetchMatchData(match.tableCode);
-          
-          if (result.success && result.data) {
-            const newScoreA = result.data.scoreA || 0;
-            const newScoreB = result.data.scoreB || 0;
-            
-            // Mettre à jour seulement si les scores ont changé
-            if (newScoreA !== match.scoreA || newScoreB !== match.scoreB) {
-              await updateMatchScores(match.id, {
-                scoreA: newScoreA,
-                scoreB: newScoreB,
-                lastScoreUpdate: new Date().toISOString()
-              });
+          if (!isMountedRef.current) return;
+
+          // Relire le match : il a pu être terminé, mis en pause ou supprimé
+          // pendant l'appel réseau.
+          const current = matchesRef.current.find((m) => m.id === match.id);
+          if (!current || current.status !== 'active') return;
+
+          if (!result.success) {
+            if (result.error === 'NOMATCH') {
+              // CueScore ne diffuse plus ce match : il vient probablement de
+              // se terminer. On attend plusieurs confirmations avant de clore.
+              const seen = (missingCountRef.current.get(match.id) || 0) + 1;
+              missingCountRef.current.set(match.id, seen);
+
+              if (seen >= missingMatchConfirmations) {
+                missingCountRef.current.delete(match.id);
+                finishMatchRef.current?.(match.id);
+              }
+            } else {
+              console.warn(
+                `Scores non mis à jour pour ${match.tableName || match.table}: ${result.message}`
+              );
             }
-          } else if (result.error !== 'NOMATCH') {
-            // Ignorer silencieusement NOMATCH (match pas encore lancé)
-            console.warn(`Aucune donnée valide pour ${match.tableName || match.table}`);
+            return;
           }
-        } catch (err) {
-          console.warn(`Erreur mise à jour ${match.tableName || match.table}:`, err.message);
-        }
-        
-        // Pause de 500ms entre chaque appel pour éviter la surcharge
-        await new Promise(resolve => setTimeout(resolve, 500));
-      }
-      
+
+          // Lecture réussie : le match est bien toujours diffusé.
+          missingCountRef.current.delete(match.id);
+
+          const scoreA = Number(result.data.scoreA) || 0;
+          const scoreB = Number(result.data.scoreB) || 0;
+          const raceTo = Number(result.data.raceTo) || null;
+
+          const updates = {};
+          if (scoreA !== current.scoreA || scoreB !== current.scoreB) {
+            updates.scoreA = scoreA;
+            updates.scoreB = scoreB;
+            updates.lastScoreUpdate = new Date().toISOString();
+          }
+          // Le format peut être ajusté par l'organisateur en cours d'épreuve.
+          if (raceTo !== (current.raceTo ?? null)) {
+            updates.raceTo = raceTo;
+          }
+
+          if (Object.keys(updates).length > 0) {
+            updateScoresRef.current(match.id, updates);
+          }
+        },
+        maxConcurrentRequests
+      );
     } catch (error) {
       console.error('Erreur lors de la mise à jour des scores:', error);
     } finally {
       isUpdatingRef.current = false;
     }
-  }, [matches, fetchMatchData, updateMatchScores]);
+  }, [fetchMatchData]);
 
   useEffect(() => {
-    const startAutoUpdate = () => {
-      // Première mise à jour après 5 secondes (réduit de 10s)
-      setTimeout(() => {
-        updateScores();
-      }, 5000);
-
-      // Puis toutes les 30 secondes (plus fréquent pour de meilleures performances)
-      intervalRef.current = setInterval(() => {
-        updateScores();
-      }, 30000); // 30 secondes au lieu de 60
-      
-      console.log('🚀 Mise à jour automatique des scores démarrée (toutes les 30 secondes)');
-    };
-
-    const activeMatchesCount = matches.filter(m => m.status === 'active').length;
-    
-    if (activeMatchesCount > 0) {
-      startAutoUpdate();
-    } else {
-      // Arrêter la mise à jour s'il n'y a pas de matchs actifs
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
-        console.log('⏹️ Mise à jour automatique arrêtée (aucun match actif)');
-      }
-    }
-
-    // Cleanup
+    isMountedRef.current = true;
     return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
-      }
+      isMountedRef.current = false;
     };
-  }, [matches, updateScores]);
+  }, []);
 
-  // Fonction pour mise à jour manuelle
-  const manualUpdate = async () => {
-    await updateScores();
-  };
+  useEffect(() => {
+    if (!hasActiveMatches) return undefined;
 
-  return {
-    manualUpdate,
-    isUpdating: isUpdatingRef.current
-  };
+    // Relecture immédiate, puis à intervalle régulier.
+    updateScores();
+    const intervalId = setInterval(updateScores, pollInterval);
+
+    // Un onglet en arrière-plan voit ses minuteries fortement ralenties par le
+    // navigateur : on resynchronise dès qu'il redevient visible, sans quoi
+    // l'écran afficherait un score figé au retour.
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') updateScores();
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [hasActiveMatches, updateScores]);
+
+  return { manualUpdate: updateScores };
 }

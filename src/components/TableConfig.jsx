@@ -1,12 +1,22 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useTables } from '../hooks/useTables';
 
 export default function TableConfig({ isOpen, onClose, addToast }) {
-  const { tables, loading, error, addTable, updateTable, removeTable, resetToDefault } = useTables();
+  const { tables, loading, error, addTable, updateTable, removeTable, clearTables } = useTables();
   const [editingTable, setEditingTable] = useState(null);
   const [newTableName, setNewTableName] = useState('');
   const [newTableCode, setNewTableCode] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
+
+  // Déclaré avant le retour anticipé : l'ordre des hooks doit rester constant.
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
@@ -56,18 +66,34 @@ export default function TableConfig({ isOpen, onClose, addToast }) {
     }
   };
 
-  const handleReset = () => {
-    if (window.confirm('Êtes-vous sûr de vouloir restaurer la configuration par défaut ?')) {
-      const result = resetToDefault();
+  // Il n'existe aucune configuration de tables livrée par défaut : cette action
+  // efface bien la totalité des tables, le libellé doit le dire.
+  const handleClearAll = () => {
+    if (tables.length === 0) return;
+
+    if (window.confirm(`Supprimer les ${tables.length} table(s) configurée(s) ? Cette action est irréversible.`)) {
+      const result = clearTables();
       if (result.success) {
-        addToast('Configuration restaurée par défaut', 'success');
+        addToast('Toutes les tables ont été supprimées', 'success');
+      } else {
+        addToast(result.error, 'error');
       }
     }
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-gradient-to-br from-surface via-primary to-secondary backdrop-blur-xl rounded-2xl border border-white/10 shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden">
+    <div
+      className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+      onClick={onClose}
+      role="presentation"
+    >
+      <div
+        className="bg-gradient-to-br from-surface via-primary to-secondary backdrop-blur-xl rounded-2xl border border-white/10 shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Configuration des tables"
+      >
         {/* Header */}
         <div className="bg-glass-medium backdrop-blur-xl border-b border-white/10 p-6">
           <div className="flex justify-between items-center">
@@ -92,10 +118,11 @@ export default function TableConfig({ isOpen, onClose, addToast }) {
               ➕ Ajouter une table
             </button>
             <button
-              onClick={handleReset}
-              className="px-4 py-2 bg-warning hover:bg-warning/80 rounded-lg text-white font-medium transition-all duration-200"
+              onClick={handleClearAll}
+              disabled={tables.length === 0}
+              className="px-4 py-2 bg-error hover:bg-error/80 rounded-lg text-white font-medium transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              🔄 Restaurer par défaut
+              🗑️ Tout supprimer
             </button>
           </div>
 
